@@ -1,0 +1,153 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>行程地图 · 布达佩斯 / 维也纳 / 湖区 2026-10-25 至 11-01</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="data.js"></script>
+<style>
+*{box-sizing:border-box}body{margin:0;font-family:-apple-system,"PingFang SC","Microsoft YaHei",sans-serif;font-size:14px;color:#222}
+#app{display:flex;height:100vh}
+#side{width:380px;display:flex;flex-direction:column;border-right:1px solid #ddd;background:#fafafa}
+#map{flex:1}
+header{padding:8px 10px;border-bottom:1px solid #ddd;background:#fff}
+h1{font-size:16px;margin:0 0 6px}
+#tabs{display:flex;flex-wrap:wrap;gap:4px}
+#tabs button{border:1px solid #bbb;background:#fff;border-radius:14px;padding:3px 9px;cursor:pointer;font-size:13px}
+#tabs button.on{color:#fff;border-color:transparent}
+#filters{display:flex;flex-wrap:wrap;gap:6px;margin-top:6px;font-size:13px}
+#filters label{cursor:pointer;user-select:none}
+#summary{max-height:48vh;overflow:auto;padding:8px 10px;background:#fff;border-bottom:1px solid #eee;font-size:13px;line-height:1.5}
+.rec{margin-top:6px;background:#fffbe6;border:1px solid #f0d77a;border-radius:6px;padding:4px 8px}.rec ul{margin:3px 0 0 16px;padding:0}
+.legs{margin-top:6px}.legs ol{margin:4px 0 0 18px;padding:0;font-size:12px}.legs li{margin-bottom:3px}
+.leglab span{display:inline-block;white-space:nowrap;background:#fff;border:2px solid;border-radius:10px;padding:0 5px;font-size:11px;line-height:16px;box-shadow:0 1px 2px rgba(0,0,0,.3);transform:translate(-50%,-50%)}
+.legtip{max-width:280px;white-space:normal}
+#summary .t{font-weight:600;font-size:14px;margin-bottom:3px}
+#list{overflow:auto;flex:1;padding:4px 0}
+.sec{padding:6px 10px 2px;font-weight:600;color:#666;font-size:12px}
+.it{padding:6px 10px;border-bottom:1px solid #eee;cursor:pointer;display:flex;gap:8px;align-items:flex-start}
+.it:hover{background:#eef4ff}
+.it .ic{flex:none;width:24px;height:24px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:13px}
+.it .nm{font-weight:500}.it .sub{font-size:12px;color:#666}
+.it .th{display:flex;gap:3px;margin-top:3px;flex-wrap:wrap}
+.th img{width:44px;height:44px;object-fit:cover;border-radius:3px;border:1px solid #ccc;cursor:zoom-in}
+.flag{color:#b00;font-size:12px}
+.mk{border-radius:50%;display:flex;align-items:center;justify-content:center;border:2px solid #fff;box-shadow:0 1px 3px rgba(0,0,0,.4);font-size:13px}
+.mk.cand{opacity:.6}
+.pop{max-width:300px;font-size:13px;line-height:1.45}.pop h3{margin:0 0 4px;font-size:14px}
+.pop .row{margin:2px 0}.pop .lab{color:#666}
+.pop .imgs{display:flex;gap:4px;flex-wrap:wrap;margin:4px 0}
+.pop .imgs img{width:64px;height:64px;object-fit:cover;border-radius:3px;border:1px solid #ccc;cursor:zoom-in}
+.v{font-size:12px;background:#f3f3f3;border-radius:3px;padding:2px 4px;margin:2px 0}
+#legend{background:#fff;padding:6px 8px;border-radius:4px;box-shadow:0 1px 4px rgba(0,0,0,.3);font-size:12px;line-height:1.6}
+#lb{position:fixed;inset:0;background:rgba(0,0,0,.85);display:none;z-index:9999;align-items:center;justify-content:center;flex-direction:column}
+#lb img{max-width:95vw;max-height:85vh}#lb .cap{color:#fff;margin-top:6px;font-size:13px;text-align:center}
+#lb a{color:#9cf}
+#toggle{display:none}
+@media (max-width:760px){#app{flex-direction:column}#side{width:100%;height:45vh;order:2;border-right:none;border-top:1px solid #ddd}#map{height:55vh;flex:none}
+#side.min{height:auto}#side.min #list,#side.min #summary{display:none}#toggle{display:inline-block;float:right}}
+</style>
+</head>
+<body>
+<div id="app">
+ <div id="side">
+  <header><button id="toggle" onclick="document.getElementById('side').classList.toggle('min')">收起/展开</button>
+   <h1>行程地图（原型 v0.1）</h1><div id="tabs"></div><div id="filters"></div></header>
+  <div id="summary"></div>
+  <div id="list"></div>
+ </div>
+ <div id="map"></div>
+</div>
+<div id="lb" onclick="if(event.target.id==='lb')this.style.display='none'"><img id="lbimg"><div class="cap" id="lbcap"></div></div>
+<script>
+const D=window.TRIP_DATA;
+const TYPES={sight:["景点","🏛","#1f77b4"],climb:["攀岩","🧗","#d62728"],food:["餐厅","🍴","#ff7f0e"],transport:["交通/车站","🚆","#555"],lodging:["住宿","🏠","#2ca02c"],grocery:["超市","🛒","#9467bd"]};
+const DAYKEYS=Object.keys(D.days);
+let cur="all",on=new Set(Object.keys(TYPES));
+const map=L.map('map',{zoomControl:true}).setView([47.8,16],7);
+L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:19,attribution:'© OpenStreetMap contributors'}).addTo(map);
+const layer=L.layerGroup().addTo(map);const markers={};
+const esc=s=>(s||"").replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+function openImg(full,cap){document.getElementById('lbimg').src=full;document.getElementById('lbcap').innerHTML=cap+' · <a href="'+full+'" target="_blank">新标签打开原图</a>';document.getElementById('lb').style.display='flex';}
+window.openImg=openImg;
+function imgsHTML(i,cls){
+ if(i.images.length) return '<div class="'+cls+'">'+i.images.map(m=>`<img loading="lazy" src="${m.thumb}" title="${esc(m.title)}（${esc(m.author)}）" onclick="event.stopPropagation();openImg('${m.full}','${esc(m.kind)}：${esc(m.title).replace(/'/g,"’")}（${esc(m.author).replace(/'/g,"’")}）')">`).join('')+'</div>';
+ return `<div class="sub">无本地原图 · <a href="${i.img_search}" target="_blank" onclick="event.stopPropagation()">网页图片搜索</a></div>`;
+}
+function dayRole(i,d){return d!=="all"&&D.days[d].plan.includes(i.id)?"plan":"cand";}
+function popup(i,d){
+ const t=TYPES[i.type];let h=`<div class="pop"><h3>${t[1]} ${esc(i.name)}</h3>`;
+ if(i.note)h+=`<div class="row">${esc(i.note)}</div>`;
+ const dh=i.day_hours||{};
+ if(d!=="all"&&dh[d])h+=`<div class="row"><span class="lab">当天营业：</span><b>${esc(dh[d])}</b></div>`;
+ else if(Object.keys(dh).length)h+=`<div class="row"><span class="lab">营业：</span>${Object.values(dh).map(esc).join('<br>')}</div>`;
+ if(i.hours)h+=`<div class="row"><span class="lab">时间（来源）：</span>${esc(i.hours)}</div>`;
+ if(i.price)h+=`<div class="row"><span class="lab">价格：</span>${esc(i.price)}</div>`;
+ (i.flags||[]).forEach(f=>h+=`<div class="flag">⚠ ${esc(f)}</div>`);
+ h+=`<div class="row"><span class="lab">日期：</span>${i.days.map(x=>"10/"+x).join("、")}</div>`;
+ if(i.verif.length)i.verif.forEach(v=>h+=`<div class="v"><b>${v.id}</b> ${esc(v.text).slice(0,90)}<br>状态：${esc(v.status)} ${v.mode?("· "+esc(v.mode)):""} · 上次核实：${esc(v.checked)}</div>`);
+ else h+=`<div class="v">核实：当前决策里没有对应核实项（以来源为准）</div>`;
+ h+=`<div class="row"><span class="lab">来源：</span>${esc(i.source)}${i.url&&i.url.startsWith('http')?` · <a href="${i.url}" target="_blank">链接</a>`:""}</div>`;
+ if(i.guides&&i.guides.length)h+=`<div class="row"><span class="lab">提到它的笔记：</span>${i.guides.map(esc).join("、")}</div>`;
+ h+=imgsHTML(i,"imgs");
+ if(i.images.length)h+=`<div class="sub">${[...new Set(i.images.map(m=>m.title+"（"+m.author+"）"))].map(esc).join("<br>")}${i.img_place?"<br>匹配地点："+esc(i.img_place):""}</div>`;
+ (i.img_notes||[]).forEach(n=>h+=`<div class="sub">${esc(n)}</div>`);
+ h+=`<div class="row sub">坐标：${i.approx?"≈ 近似 · ":""}${esc(i.coord_src||"")}${i.approx_note?" · "+esc(i.approx_note):""}</div>`;
+ h+=`<div class="row"><a href="https://www.google.com/maps/search/?api=1&query=${i.lat},${i.lon}" target="_blank">在 Google 地图打开</a></div></div>`;
+ return h;
+}
+function icon(i,role,dc){const t=TYPES[i.type];const s=role==="plan"?30:22;
+ return L.divIcon({className:"",iconSize:[s,s],iconAnchor:[s/2,s/2],html:`<div class="mk ${role}" style="width:${s}px;height:${s}px;background:${t[2]};${role==="plan"?"border-color:"+dc+";border-width:3px":""}">${t[1]}</div>`});}
+
+function nm(id){const x=D.items.find(i=>i.id===id);return x?x.name.split(/[（(]/)[0].trim():id}
+function md(t){return esc(t).replace(/\*\*(.+?)\*\*/g,"<b>$1</b>").replace(/⚠/g,'<span style="color:#c00">⚠</span>')}
+function drawLegs(dd,dc,labels){(dd.legs||[]).forEach(l=>{const a=D.items.find(x=>x.id===l.a),b=D.items.find(x=>x.id===l.b);if(!a||!b)return;
+  const walk=/🚶/.test(l.short)&&!/🚇|🚋|🚌|🚆/.test(l.short);
+  const pl=L.polyline([[a.lat,a.lon],[b.lat,b.lon]],{color:dc,weight:labels?4:3,opacity:labels?.85:.6,dashArray:walk?"3 7":"10 6"}).addTo(layer);
+  pl.bindTooltip(`<b>${esc(nm(l.a))} → ${esc(nm(l.b))}</b><br>${md(l.text)}`,{sticky:true,className:"legtip"});
+  if(labels){const m=L.marker([(a.lat+b.lat)/2,(a.lon+b.lon)/2],{icon:L.divIcon({className:"leglab",html:`<span style="border-color:${dc}">${esc(l.short)}</span>`,iconSize:null}),interactive:true}).addTo(layer);
+   m.bindTooltip(`<b>${esc(nm(l.a))} → ${esc(nm(l.b))}</b><br>${md(l.text)}`,{className:"legtip"});}});}
+let routeLine=null;
+function render(){
+ layer.clearLayers();const list=document.getElementById('list');list.innerHTML="";
+ const d=cur, dc=d==="all"?"#333":D.days[d].color;
+ const its=D.items.filter(i=>on.has(i.type)&&(d==="all"||i.days.includes(+d)));
+ const pts=[];
+ its.forEach(i=>{const role=dayRole(i,d);
+  const m=L.marker([i.lat,i.lon],{icon:icon(i,role,dc),zIndexOffset:role==="plan"?1000:0}).bindPopup(popup(i,d),{maxWidth:320});
+  m.addTo(layer);markers[i.id]=m;pts.push([i.lat,i.lon]);});
+ // summary
+ const sm=document.getElementById('summary');
+ if(d==="all"){sm.innerHTML=`<div class="t">全部 7 天</div>${DAYKEYS.map(k=>`<div><span style="color:${D.days[k].color}">●</span> ${esc(D.days[k].title)}</div>`).join("")}<div class="sub">${esc(D.note)} 数据生成：${esc(D.generated)}</div>`;
+  DAYKEYS.forEach(k=>drawLegs(D.days[k],D.days[k].color,false));}
+ else{const dd=D.days[d];sm.innerHTML=`<div class="t" style="color:${dc}">${esc(dd.title)}</div><div>${md(dd.summary)}</div>`+(dd.rec?`<div class="rec"><b>💡 推荐建议</b><ul>${dd.rec.map(x=>"<li>"+md(x)+"</li>").join("")}</ul></div>`:"")+(dd.legs&&dd.legs.length?`<details class="legs" open><summary><b>🚆 交通时刻（${dd.legs.length} 段）</b></summary><ol>${dd.legs.map(l=>`<li><b>${esc(nm(l.a))} → ${esc(nm(l.b))}</b><br>${md(l.text)}</li>`).join("")}</ol></details>`:"")+(dd.transfer?`<div style="margin-top:4px"><b>去机场：</b><br>${dd.transfer.map(esc).join("<br>")}</div>`:"")+`<div class="sub">${esc(D.note)}</div>`;
+  drawLegs(dd,dc,true);}
+ // list
+ const plan=d==="all"?[]:D.days[d].plan.map(id=>its.find(x=>x.id===id)).filter(Boolean);
+ const rest=its.filter(i=>!plan.includes(i));
+ const row=i=>{const t=TYPES[i.type];const el=document.createElement('div');el.className='it';
+  const dh=(i.day_hours||{})[d];
+  el.innerHTML=`<div class="ic" style="background:${t[2]}">${t[1]}</div><div><div class="nm">${esc(i.name)}${i.approx?" ≈":""}</div>
+  <div class="sub">${esc(t[0])}${dh?" · "+esc(dh):""}${i.verif.length?" · "+i.verif.map(v=>v.id).join(","):""}</div>
+  ${(i.flags||[]).slice(0,2).map(f=>`<div class="flag">⚠ ${esc(f)}</div>`).join("")}<div class="th">${imgsHTML(i,"th")}</div></div>`;
+  el.onclick=()=>{map.setView([i.lat,i.lon],Math.max(map.getZoom(),15));markers[i.id].openPopup();};list.appendChild(el);};
+ if(plan.length){list.insertAdjacentHTML('beforeend','<div class="sec">当天安排（按顺序）</div>');plan.forEach(row);}
+ list.insertAdjacentHTML('beforeend',`<div class="sec">${d==="all"?"全部地点":"候选 / 可选"}（${rest.length}）</div>`);
+ const order=["climb","food","sight","grocery","lodging","transport"];
+ rest.sort((a,b)=>order.indexOf(a.type)-order.indexOf(b.type)).forEach(row);
+ const fit=(d==="all"?pts:(plan.length?plan.map(x=>[x.lat,x.lon]):pts));
+ if(fit.length)map.fitBounds(L.latLngBounds(fit).pad(0.15),{maxZoom:15});
+ document.querySelectorAll('#tabs button').forEach(b=>{const k=b.dataset.k;b.classList.toggle('on',k===cur);b.style.background=k===cur?(k==="all"?"#333":D.days[k].color):"#fff";});
+}
+const tabs=document.getElementById('tabs');
+[["all","全部"],...DAYKEYS.map(k=>[k,"10/"+k])].forEach(([k,l])=>{const b=document.createElement('button');b.textContent=l;b.dataset.k=k;b.onclick=()=>{cur=k;render();};tabs.appendChild(b);});
+const fl=document.getElementById('filters');
+Object.entries(TYPES).forEach(([k,[n,e,c]])=>{const lab=document.createElement('label');lab.innerHTML=`<input type="checkbox" checked> <span style="color:${c}">${e}</span>${n}`;lab.querySelector('input').onchange=ev=>{ev.target.checked?on.add(k):on.delete(k);render();};fl.appendChild(lab);});
+const lg=L.control({position:'bottomright'});lg.onAdd=()=>{const d=L.DomUtil.create('div');d.id='legend';d.innerHTML='<b>图例</b><br>'+Object.values(TYPES).map(t=>`<span style="color:${t[2]}">●</span> ${t[1]} ${t[0]}`).join('<br>')+'<br>大圆+彩边 = 当天安排<br>小圆半透明 = 候选<br>虚线 = 示意路线（直线）<br>≈ = 近似坐标';return d;};lg.addTo(map);
+const hm=location.hash.match(/d=(\w+)/);if(hm&&(hm[1]==='all'||D.days[hm[1]]))cur=hm[1];
+render();
+</script>
+</body>
+</html>
