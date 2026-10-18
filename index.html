@@ -38,7 +38,7 @@ h1{font-size:16px;margin:0 0 6px}
 .th img{width:44px;height:44px;object-fit:cover;border-radius:3px;border:1px solid #ccc;cursor:zoom-in}
 .flag{color:#b00;font-size:12px}
 .mk{border-radius:50%;display:flex;align-items:center;justify-content:center;border:2px solid #fff;box-shadow:0 1px 3px rgba(0,0,0,.4);font-size:13px}
-.mk.cand{opacity:.6}
+.mk.cand{opacity:.6}.mk.ref{opacity:.45;filter:grayscale(1);border-style:dashed}
 .pop{max-width:300px;font-size:13px;line-height:1.45}.pop h3{margin:0 0 4px;font-size:14px}
 .pop .row{margin:2px 0}.pop .lab{color:#666}
 .pop .imgs{display:flex;gap:4px;flex-wrap:wrap;margin:4px 0}
@@ -57,7 +57,7 @@ h1{font-size:16px;margin:0 0 6px}
 <div id="app">
  <div id="side">
   <header><button id="toggle" onclick="document.getElementById('side').classList.toggle('min')">收起/展开</button>
-   <h1>行程地图（原型 v0.1）</h1><div id="tabs"></div><div id="filters"></div></header>
+   <h1>行程地图（由当前计划生成）</h1><div id="tabs"></div><div id="filters"></div></header>
   <div id="summary"></div>
   <div id="list"></div>
  </div>
@@ -79,7 +79,7 @@ function imgsHTML(i,cls){
  if(i.images.length) return '<div class="'+cls+'">'+i.images.map(m=>`<img loading="lazy" src="${m.thumb}" title="${esc(m.title)}（${esc(m.author)}）" onclick="event.stopPropagation();openImg('${m.full}','${esc(m.kind)}：${esc(m.title).replace(/'/g,"’")}（${esc(m.author).replace(/'/g,"’")}）')">`).join('')+'</div>';
  return `<div class="sub">无本地原图 · <a href="${i.img_search}" target="_blank" onclick="event.stopPropagation()">网页图片搜索</a></div>`;
 }
-function dayRole(i,d){return d!=="all"&&D.days[d].plan.includes(i.id)?"plan":"cand";}
+function dayRole(i,d){return i.ref?"ref":(d!=="all"&&d!=="ref"&&D.days[d].plan.includes(i.id)?"plan":"cand");}
 function popup(i,d){
  const t=TYPES[i.type];let h=`<div class="pop"><h3>${t[1]} ${esc(i.name)}</h3>`;
  if(i.note)h+=`<div class="row">${esc(i.note)}</div>`;
@@ -89,7 +89,7 @@ function popup(i,d){
  if(i.hours)h+=`<div class="row"><span class="lab">时间（来源）：</span>${esc(i.hours)}</div>`;
  if(i.price)h+=`<div class="row"><span class="lab">价格：</span>${esc(i.price)}</div>`;
  (i.flags||[]).forEach(f=>h+=`<div class="flag">⚠ ${esc(f)}</div>`);
- h+=`<div class="row"><span class="lab">日期：</span>${i.days.map(x=>"10/"+x).join("、")}</div>`;
+ h+=i.ref?`<div class="row" style="color:#777"><b>参考 / 未入计划</b>：${esc(i.ref_note||"当前计划没有安排")}</div>`:`<div class="row"><span class="lab">计划日期：</span>${i.days.map(x=>"10/"+x).join("、")}</div>`;
  if(i.verif.length)i.verif.forEach(v=>h+=`<div class="v"><b>${v.id}</b> ${esc(v.text).slice(0,90)}<br>状态：${esc(v.status)} ${v.mode?("· "+esc(v.mode)):""} · 上次核实：${esc(v.checked)}</div>`);
  else h+=`<div class="v">核实：当前决策里没有对应核实项（以来源为准）</div>`;
  h+=`<div class="row"><span class="lab">来源：</span>${esc(i.source)}${i.url&&i.url.startsWith('http')?` · <a href="${i.url}" target="_blank">链接</a>`:""}</div>`;
@@ -115,20 +115,21 @@ function drawLegs(dd,dc,labels){(dd.legs||[]).forEach(l=>{const a=D.items.find(x
 let routeLine=null;
 function render(){
  layer.clearLayers();const list=document.getElementById('list');list.innerHTML="";
- const d=cur, dc=d==="all"?"#333":D.days[d].color;
- const its=D.items.filter(i=>on.has(i.type)&&(d==="all"||i.days.includes(+d)));
+ const d=cur, dc=d==="all"?"#333":(d==="ref"?"#888":D.days[d].color);
+ const its=D.items.filter(i=>on.has(i.type)&&(d==="ref"?i.ref:(!i.ref&&(d==="all"||i.days.includes(+d)))));
  const pts=[];
  its.forEach(i=>{const role=dayRole(i,d);
   const m=L.marker([i.lat,i.lon],{icon:icon(i,role,dc),zIndexOffset:role==="plan"?1000:0}).bindPopup(popup(i,d),{maxWidth:320});
   m.addTo(layer);markers[i.id]=m;pts.push([i.lat,i.lon]);});
  // summary
  const sm=document.getElementById('summary');
- if(d==="all"){sm.innerHTML=`<div class="t">全部 7 天</div>${DAYKEYS.map(k=>`<div><span style="color:${D.days[k].color}">●</span> ${esc(D.days[k].title)}</div>`).join("")}<div class="sub">${esc(D.note)} 数据生成：${esc(D.generated)}</div>`;
+ if(d==="ref"){sm.innerHTML=`<div class="t" style="color:#666">参考 / 未入计划（${its.length}）</div><div>这些地点来自资料库（攀岩馆、餐厅、超市、景点等），<b>当前计划 ${esc(D.plan_version||"")} 没有安排</b>，只作备选参考，不是行程。要加入行程，先改 当前计划.md，再重新生成本页。</div><div class="sub">${esc(D.generated)}</div>`;}
+ else if(d==="all"){sm.innerHTML=`<div class="t">全部 7 天</div>${DAYKEYS.map(k=>`<div><span style="color:${D.days[k].color}">●</span> ${esc(D.days[k].title)}</div>`).join("")}<div class="sub">${esc(D.note)} 数据生成：${esc(D.generated)}</div>`;
   DAYKEYS.forEach(k=>drawLegs(D.days[k],D.days[k].color,false));}
  else{const dd=D.days[d];sm.innerHTML=`<div class="t" style="color:${dc}">${esc(dd.title)}</div><div>${md(dd.summary)}</div>`+(dd.rec&&dd.rec.length?`<div class="rec"><b>💡 推荐建议</b><ul>${dd.rec.map(x=>"<li>"+md(x)+"</li>").join("")}</ul></div>`:"")+(dd.verdict?`<div class="verdict v-${(dd.flags||[]).some(f=>f.lv=="bad")?"bad":((dd.flags||[]).some(f=>f.lv=="warn")?"warn":"ok")}"><b>可行性：${esc(dd.verdict)}</b><ul>${(dd.flags||[]).map(f=>`<li>${f.lv=="ok"?"✅":f.lv=="bad"?"❌":"⚠"} ${md(f.t)}</li>`).join("")}</ul></div>`:"")+(dd.wake?`<div style="margin-top:4px">⏰ <b>作息：</b>${md(dd.wake)}</div>`:"")+(dd.must?`<details class="sched" open><summary><b>⛳ 必须卡的时间点（${dd.must.length}）</b></summary><table>${dd.must.map(r=>`<tr class="k-tr"><td class="tm">${esc(r[0])}</td><td>${md(r[1])}</td></tr>`).join("")}</table></details>`:"")+(dd.combos&&dd.combos.length?`<details class="sched" open><summary><b>🔀 可选组合</b></summary><ul style="margin:3px 0 0 16px;padding:0">${dd.combos.map(x=>"<li>"+md(x)+"</li>").join("")}</ul></details>`:"")+(dd.opts?`<details class="sched" open><summary><b>🧭 可以去的地方（大概多久）</b></summary><table>${dd.opts.map(r=>`<tr><td>${md(r[0])}</td><td class="tm">${esc(r[1])}</td></tr>`).join("")}</table></details>`:"")+(dd.conns?`<details class="sched"><summary><b>🚆 真实交通时刻</b></summary><ul style="margin:3px 0 0 16px;padding:0">${dd.conns.map(x=>"<li>"+md(x)+"</li>").join("")}</ul></details>`:"")+(dd.transfer?`<div style="margin-top:4px"><b>去机场：</b><br>${dd.transfer.map(esc).join("<br>")}</div>`:"")+`<div class="sub">${esc(D.note)}</div>`;
   drawLegs(dd,dc,true);}
  // list
- const plan=d==="all"?[]:D.days[d].plan.map(id=>its.find(x=>x.id===id)).filter(Boolean);
+ const plan=(d==="all"||d==="ref")?[]:D.days[d].plan.map(id=>its.find(x=>x.id===id)).filter(Boolean);
  const rest=its.filter(i=>!plan.includes(i));
  const row=i=>{const t=TYPES[i.type];const el=document.createElement('div');el.className='it';
   const dh=(i.day_hours||{})[d];
@@ -137,19 +138,19 @@ function render(){
   ${(i.flags||[]).slice(0,2).map(f=>`<div class="flag">⚠ ${esc(f)}</div>`).join("")}<div class="th">${imgsHTML(i,"th")}</div></div>`;
   el.onclick=()=>{map.setView([i.lat,i.lon],Math.max(map.getZoom(),15));markers[i.id].openPopup();};list.appendChild(el);};
  if(plan.length){list.insertAdjacentHTML('beforeend','<div class="sec">当天安排（按顺序）</div>');plan.forEach(row);}
- list.insertAdjacentHTML('beforeend',`<div class="sec">${d==="all"?"全部地点":"候选 / 可选"}（${rest.length}）</div>`);
+ list.insertAdjacentHTML('beforeend',`<div class="sec">${d==="all"?"7 天计划内的全部地点":(d==="ref"?"参考 / 未入计划":"当天计划里提到的其他地点")}（${rest.length}）</div>`);
  const order=["climb","food","sight","grocery","lodging","transport"];
  rest.sort((a,b)=>order.indexOf(a.type)-order.indexOf(b.type)).forEach(row);
  const fit=(d==="all"?pts:(plan.length?plan.map(x=>[x.lat,x.lon]):pts));
  if(fit.length)map.fitBounds(L.latLngBounds(fit).pad(0.15),{maxZoom:15});
- document.querySelectorAll('#tabs button').forEach(b=>{const k=b.dataset.k;b.classList.toggle('on',k===cur);b.style.background=k===cur?(k==="all"?"#333":D.days[k].color):"#fff";});
+ document.querySelectorAll('#tabs button').forEach(b=>{const k=b.dataset.k;b.classList.toggle('on',k===cur);b.style.background=k===cur?(k==="all"?"#333":(k==="ref"?"#888":D.days[k].color)):"#fff";});
 }
 const tabs=document.getElementById('tabs');
-[["all","全部"],...DAYKEYS.map(k=>[k,"10/"+k])].forEach(([k,l])=>{const b=document.createElement('button');b.textContent=l;b.dataset.k=k;b.onclick=()=>{cur=k;render();};tabs.appendChild(b);});
+[["all","全部"],...DAYKEYS.map(k=>[k,"10/"+k]),["ref","参考（未入计划）"]].forEach(([k,l])=>{const b=document.createElement('button');b.textContent=l;b.dataset.k=k;b.onclick=()=>{cur=k;render();};tabs.appendChild(b);});
 const fl=document.getElementById('filters');
 Object.entries(TYPES).forEach(([k,[n,e,c]])=>{const lab=document.createElement('label');lab.innerHTML=`<input type="checkbox" checked> <span style="color:${c}">${e}</span>${n}`;lab.querySelector('input').onchange=ev=>{ev.target.checked?on.add(k):on.delete(k);render();};fl.appendChild(lab);});
-const lg=L.control({position:'bottomright'});lg.onAdd=()=>{const d=L.DomUtil.create('div');d.id='legend';d.innerHTML='<b>图例</b><br>'+Object.values(TYPES).map(t=>`<span style="color:${t[2]}">●</span> ${t[1]} ${t[0]}`).join('<br>')+'<br>大圆+彩边 = 当天安排<br>小圆半透明 = 候选<br>虚线 = 示意路线（直线）<br>≈ = 近似坐标';return d;};lg.addTo(map);
-const hm=location.hash.match(/d=(\w+)/);if(hm&&(hm[1]==='all'||D.days[hm[1]]))cur=hm[1];
+const lg=L.control({position:'bottomright'});lg.onAdd=()=>{const d=L.DomUtil.create('div');d.id='legend';d.innerHTML='<b>图例</b><br>'+Object.values(TYPES).map(t=>`<span style="color:${t[2]}">●</span> ${t[1]} ${t[0]}`).join('<br>')+'<br>大圆+彩边 = 当天安排<br>小圆半透明 = 当天计划提到的其他点<br>灰色虚边 = 参考（未入计划）<br>虚线 = 示意路线（直线）<br>≈ = 近似坐标';return d;};lg.addTo(map);
+const hm=location.hash.match(/d=(\w+)/);if(hm&&(hm[1]==='all'||hm[1]==='ref'||D.days[hm[1]]))cur=hm[1];
 render();
 </script>
 </body>
