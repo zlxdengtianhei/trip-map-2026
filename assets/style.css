@@ -38,5 +38,19 @@ img{max-width:100%}
 .pending li{margin:4px 0}
 .legend span{display:inline-block;margin-right:10px;font-size:13px}.legend i{display:inline-block;width:10px;height:10px;border-radius:50%;margin-right:4px}
 .today-box{background:var(--card);border:2px solid var(--fg);border-radius:12px;padding:14px}
+.gallery figure{margin:0}.gallery figcaption{font-size:12px;color:var(--muted);text-align:center}.gallery img{aspect-ratio:4/3;object-fit:cover}
+.small{font-size:13px}
+details.fold{background:var(--card);border:1px solid var(--line);border-radius:8px;margin:10px 0;padding:0 12px}
+details.fold>summary{cursor:pointer;padding:8px 0;font-weight:600;list-style:none}details.fold>summary::-webkit-details-marker{display:none}
+details.fold>summary::before{content:'▸ ';color:var(--muted)}details.fold[open]>summary::before{content:'▾ '}
+details.fold>summary h2{display:inline;border:0;font-size:18px;margin:0;padding:0}
+details.fold .foldin{padding-bottom:10px}
+details.fold.gal{background:#fbfbfa}
+.daycard details.fold{margin:6px 0 0}
+.foldbar,.cglobal{display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin:8px 0}
+.foldbar button,.cglobal button,.ctab{border:1px solid var(--line);background:#fff;border-radius:14px;padding:3px 12px;font-size:13px;cursor:pointer}
+.ctabs{display:flex;gap:6px;flex-wrap:wrap;margin:6px 0}
+.ctab.on{background:var(--fg);color:#fff;border-color:var(--fg)}
+.cpanel{background:var(--card);border:1px solid var(--line);border-radius:8px;padding:4px 12px;margin:6px 0}
 @media (max-width:760px){.navtoggle{display:block}nav{display:none;width:100%}body.navopen nav{display:flex}.map{height:320px}}
 @media print{header.top,footer,.map{display:none}}
