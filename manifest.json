@@ -1,0 +1,35 @@
+{
+ "plan_version": "v2",
+ "plan_updated": "2026-10-18 15:53",
+ "plan_sha": "aa953e1ed1063a52",
+ "built_at": "2026-10-18 23:44:37",
+ "store": "/cursor/stores/store-a7b1965b-b17b-450f-ae2d-37e8c67fa81e/bad-ischl-trip",
+ "sandbox": false,
+ "pages": [
+  "budget.html",
+  "day-25.html",
+  "day-26.html",
+  "day-27.html",
+  "day-28.html",
+  "day-29.html",
+  "day-30.html",
+  "day-31.html",
+  "decide.html",
+  "index.html",
+  "map.html",
+  "notes.html",
+  "places.html",
+  "today.html",
+  "updates.html"
+ ],
+ "n_places": 147,
+ "n_in_plan": 50,
+ "content_files": {
+  "home": false,
+  "notes": false,
+  "today": false,
+  "days": false,
+  "places": 0
+ },
+ "banned_words_in_plan": []
+}
