@@ -1,8 +1,8 @@
 {
- "plan_version": "v4",
- "plan_updated": "2026-10-19 01:53",
- "plan_sha": "c5289780ba1bccea",
- "built_at": "2026-10-19 02:04:55",
+ "plan_version": "v6",
+ "plan_updated": "2026-10-19 11:45",
+ "plan_sha": "000950199bec1ae2",
+ "built_at": "2026-10-19 11:48:07",
  "store": "/cursor/stores/store-a7b1965b-b17b-450f-ae2d-37e8c67fa81e/bad-ischl-trip",
  "sandbox": false,
  "pages": [
@@ -34,8 +34,8 @@
   "places": 2
  },
  "banned_words_in_plan": [],
- "decisions_sha": "7de506e89dcca00710897ebe2bdd686a",
- "decisions_latest": "2026-10-19 01:53",
- "n_pending": 47,
+ "decisions_sha": "66003fb4163f1176c4978c013716d196",
+ "decisions_latest": "2026-10-19 11:45",
+ "n_pending": 45,
  "n_decided": 32
 }
