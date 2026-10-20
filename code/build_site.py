@@ -210,6 +210,13 @@ def main(argv=None):
     print(f"生成 {out}：{n} 个页面，{len(site.days)} 天，{len(site.places)} 个地点，{sum(1 for i in site.images.values() if isinstance(i, dict) and i.get('file'))} 张图")
     if site.problems:
         print(f"数据有 {len(site.problems)} 处不合格式（照常生成；跑 tools/check.py 看详情）")
+    # 整份文件读不进来（YAML 错、重复键）时，生成的网站会缺一整块内容，不能拿去替换线上旧站
+    unreadable = [(f, ln, msg) for f, ln, msg in site.problems if "YAML 读不了" in msg]
+    if unreadable or not site.places:
+        for f, ln, msg in unreadable:
+            print(f"错误：{f}:{ln}：{msg}", file=sys.stderr)
+        print("错误：有文件整份读不进来（或地点库为空），网站缺内容，不能发布；修好后重跑", file=sys.stderr)
+        return 1
     hits = privacy.scan_dir(out, site.policy)
     for rel, ln, what, frag in hits:
         print(f"隐私：{out.name}/{rel}:{ln}：{what}（{frag}）")
