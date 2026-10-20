@@ -36,6 +36,11 @@ class Site:
         self.root, self.out = Path(root), Path(out)
         self.data, self.problems = tripdata.load_all(self.root)
         self.places, self.images = self.data["places"], self.data["images"]
+        # 住处是私人位置：公开站不放坐标和当地名（地址在私有仓里，agent 照样能用）
+        for p in self.places.values():
+            if p.get("kind") == "住宿":
+                p.pop("coords", None)
+                p.pop("name_local", None)
         self.policy = privacy.load(self.root / "config" / "privacy.txt")
         self.env = Environment(loader=FileSystemLoader(str(self.root / "site" / "templates")), autoescape=True,
                                trim_blocks=False)
@@ -211,7 +216,7 @@ def main(argv=None):
     if site.problems:
         print(f"数据有 {len(site.problems)} 处不合格式（照常生成；跑 tools/check.py 看详情）")
     # 整份文件读不进来（YAML 错、重复键）时，生成的网站会缺一整块内容，不能拿去替换线上旧站
-    unreadable = [(f, ln, msg) for f, ln, msg in site.problems if "YAML 读不了" in msg]
+    unreadable = [(f, ln, msg) for f, ln, msg in site.problems if "读不了" in msg]
     if unreadable or not site.places:
         for f, ln, msg in unreadable:
             print(f"错误：{f}:{ln}：{msg}", file=sys.stderr)
