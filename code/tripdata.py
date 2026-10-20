@@ -23,6 +23,27 @@ HHMM = re.compile(r"^\d{1,2}:\d{2}$")
 WEEK = "一二三四五六日"
 
 
+class _NoDupLoader(yaml.SafeLoader):
+    """safe_load，但同一层有重复的键就报错（否则 YAML 只留后一个，前一个静默丢掉）。"""
+
+
+def _map_no_dup(loader, node, deep=False):
+    seen = set()
+    for k, _ in node.value:
+        key = loader.construct_object(k, deep=deep)
+        if key in seen:
+            raise yaml.constructor.ConstructorError(None, None, f"重复的键“{key}”（前一个会被静默丢掉）", k.start_mark)
+        seen.add(key)
+    return loader.construct_mapping(node, deep)
+
+
+_NoDupLoader.add_constructor(yaml.resolver.BaseResolver.DEFAULT_MAPPING_TAG, _map_no_dup)
+
+
+def _load(text):
+    return yaml.load(text, Loader=_NoDupLoader)
+
+
 class Problems(list):
     def add(self, path, line, msg):
         self.append((str(path), line, msg))
@@ -39,7 +60,7 @@ def load_places(root, problems):
         return {}
     text = path.read_text(encoding="utf-8")
     try:
-        data = yaml.safe_load(text) or []
+        data = _load(text) or []
     except yaml.YAMLError as e:
         mark = getattr(e, "problem_mark", None)
         problems.add("data/places.yaml", mark.line + 1 if mark else 0, f"YAML 读不了：{getattr(e, 'problem', e)}")
@@ -86,7 +107,7 @@ def load_images(root, problems, places):
         return {}
     text = path.read_text(encoding="utf-8")
     try:
-        data = yaml.safe_load(text) or {}
+        data = _load(text) or {}
     except yaml.YAMLError as e:
         problems.add("data/images.yaml", 0, f"YAML 读不了：{e}")
         return {}
@@ -128,7 +149,7 @@ def load_day(root, path, problems):
         problems.add(rel, 1, "缺 YAML 头（--- … ---）")
     else:
         try:
-            day["meta"] = yaml.safe_load(fm) or {}
+            day["meta"] = _load(fm) or {}
         except yaml.YAMLError as e:
             problems.add(rel, 1, f"YAML 头读不了：{e}")
     meta = day["meta"]
@@ -256,17 +277,17 @@ def load_decisions(root, problems):
     path = root / "trip" / "决定.md"
     if not path.exists():
         problems.add("trip/决定.md", 0, "没有这个文件")
-        return {"done": [], "open": []}
+        return {"done": [], "open": [], "ask": []}
     tables = parse_tables(path.read_text(encoding="utf-8"))
-    out = {"done": [], "open": []}
+    out = {"done": [], "open": [], "ask": []}
     for t in tables:
-        key = {"已定": "done", "待你定": "open"}.get(t["section"])
+        key = {"已定": "done", "待你定": "open", "只要告诉我": "ask"}.get(t["section"])
         if key:
             out[key] += [{**r, "_line": ln} for ln, r in t["rows"]]
     if not any(t["section"] == "待你定" for t in tables):
         problems.add("trip/决定.md", 0, "找不到“## 待你定”下的表")
-    if len(out["open"]) > 5:
-        problems.add("trip/决定.md", out["open"][5]["_line"], f"“待你定”有 {len(out['open'])} 条，最多同时挂 5 条")
+    if len(out["open"]) > 3:
+        problems.add("trip/决定.md", out["open"][3]["_line"], f"“待你定”有 {len(out['open'])} 条，最多同时挂 3 条（只要用户告诉信息的放“## 只要告诉我”）")
     return out
 
 

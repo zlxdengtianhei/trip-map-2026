@@ -69,3 +69,4 @@ details.fold .foldin{padding-bottom:10px}
 @media (max-width:760px){.navtoggle{display:block}nav{display:none;width:100%}body.navopen nav{display:flex}.map{height:300px}main{padding:12px}
 .cand{grid-template-columns:72px 1fr}.cand .ph{width:72px;height:72px}.place{grid-template-columns:84px 1fr}.place .ph{width:84px;height:84px}}
 @media print{header.top,footer,.map,.foldbar{display:none}details.fold{border:0}}
+.phlink{display:block}
