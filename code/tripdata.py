@@ -96,9 +96,35 @@ def load_places(root, problems):
                                   and -90 <= c[0] <= 90 and -180 <= c[1] <= 180):
             problems.add("data/places.yaml", ln, f"{pid} 的 coords 要写成 [纬度, 经度]")
             p["coords"] = None
+        _check_pick_fields(p, pid, ln, problems)
         if pid:
             places[pid] = p
     return places
+
+
+def _check_pick_fields(p, pid, ln, problems):
+    """可选的 heat、sources、transit（“选地方”页与天页候选用）；写错的报出来并当作没写，网站照常生成。"""
+    h = p.get("heat")
+    if h is not None and (isinstance(h, bool) or not isinstance(h, int) or h < 0):
+        problems.add("data/places.yaml", ln, f"{pid} 的 heat 要写成 0 或正整数（资料里提到它的笔记篇数），现在是 “{h}”")
+        p["heat"] = None
+    s = p.get("sources")
+    if s is not None:
+        if not isinstance(s, list) or not all(isinstance(x, str) and x.strip() for x in s):
+            problems.add("data/places.yaml", ln, f"{pid} 的 sources 要写成列表，每条一个相对仓库根的资料路径")
+            p["sources"] = None
+        else:
+            for x in s:
+                if x.startswith("/") or ".." in Path(x).parts:
+                    problems.add("data/places.yaml", ln, f"{pid} 的 sources 里 “{x}” 要写相对仓库根的路径（不以 / 开头、不含 ..）")
+    t = p.get("transit")
+    if t is not None:
+        if not isinstance(t, str) or not t.strip():
+            problems.add("data/places.yaml", ln, f"{pid} 的 transit 要写成一句文字（交通与单程时间）")
+            p["transit"] = None
+        elif "\n" in t.strip():
+            problems.add("data/places.yaml", ln, f"{pid} 的 transit 只写一句，不换行")
+            p["transit"] = " ".join(t.split())
 
 
 def load_images(root, problems, places):

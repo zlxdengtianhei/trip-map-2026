@@ -58,5 +58,97 @@
       var o=b.dataset.fold==='open';document.querySelectorAll('details.fold').forEach(function(d){d.open=o;});
     });});
   }
-  document.addEventListener('DOMContentLoaded',function(){initMaps();initToday();initFold();tick();setInterval(tick,30000);});
+  // “选地方”页：勾选与想哪天存在 localStorage（读写失败也照常能用，只是不记住）；底部按钮把选择变成一段纯文字
+  var PICK_KEY='trip2026-pick-v1';
+  function loadPick(){try{var v=JSON.parse(localStorage.getItem(PICK_KEY)||'{}');return v&&typeof v==='object'&&!Array.isArray(v)?v:{};}catch(e){return {};}}
+  function savePick(sel){try{localStorage.setItem(PICK_KEY,JSON.stringify(sel));}catch(e){}}
+  function initPick(){
+    var root=document.getElementById('pick');if(!root)return;
+    var sel=loadPick(),kinds=[];
+    var cards=[].slice.call(root.querySelectorAll('.pcard[data-id]'));
+    function render(card){
+      var id=card.dataset.id,on=Object.prototype.hasOwnProperty.call(sel,id),days=on&&Array.isArray(sel[id])?sel[id]:[];
+      card.classList.toggle('sel',on);
+      card.querySelector('.pk').checked=on;
+      card.querySelector('.pwhen').hidden=!on;
+      [].forEach.call(card.querySelectorAll('.dchip'),function(b){
+        var d=b.dataset.d,act=d?days.indexOf(d)>=0:!days.length;
+        b.classList.toggle('on',act);b.setAttribute('aria-pressed',act?'true':'false');
+      });
+    }
+    function count(){
+      var n=cards.filter(function(c){return Object.prototype.hasOwnProperty.call(sel,c.dataset.id);}).length;
+      document.getElementById('pkcount').textContent='已选 '+n+' 个';return n;
+    }
+    function setOn(card,on){
+      var id=card.dataset.id;
+      if(on){if(!Object.prototype.hasOwnProperty.call(sel,id))sel[id]=[];}else{delete sel[id];}
+      render(card);
+    }
+    function changed(){savePick(sel);count();}
+    cards.forEach(function(card){
+      render(card);
+      card.querySelector('.pk').addEventListener('change',function(e){setOn(card,e.target.checked);changed();});
+      [].forEach.call(card.querySelectorAll('.dchip'),function(b){b.addEventListener('click',function(){
+        var id=card.dataset.id,d=b.dataset.d,days=Array.isArray(sel[id])?sel[id].slice():[];
+        if(!d){days=[];}else{var i=days.indexOf(d);if(i>=0)days.splice(i,1);else days.push(d);}
+        var order=[].map.call(card.querySelectorAll('.dchip[data-d]'),function(x){return x.dataset.d;});
+        days.sort(function(a,b){return order.indexOf(a)-order.indexOf(b);});
+        sel[id]=days;render(card);changed();
+      });});
+    });
+    function visible(card){return !card.hidden&&!card.closest('.pgroup').hidden;}
+    [].forEach.call(root.querySelectorAll('[data-all]'),function(b){b.addEventListener('click',function(){
+      var on=b.dataset.all==='on';cards.forEach(function(c){if(!on||visible(c))setOn(c,on);});changed();
+    });});
+    [].forEach.call(root.querySelectorAll('.pgroup'),function(g){
+      [].forEach.call(g.querySelectorAll('[data-group]'),function(b){b.addEventListener('click',function(){
+        var on=b.dataset.group==='on';
+        [].forEach.call(g.querySelectorAll('.pcard[data-id]'),function(c){if(!on||!c.hidden)setOn(c,on);});changed();
+      });});
+    });
+    // 类别筛选：可多选；“全部”清掉筛选。筛掉的卡只是看不见，勾选不变
+    var chips=[].slice.call(root.querySelectorAll('.chip[data-kind]'));
+    function applyFilter(){
+      chips.forEach(function(c){var k=c.dataset.kind,act=k?kinds.indexOf(k)>=0:!kinds.length;
+        c.classList.toggle('on',act);c.setAttribute('aria-pressed',act?'true':'false');});
+      var shown=0;
+      cards.forEach(function(c){c.hidden=kinds.length>0&&kinds.indexOf(c.dataset.kind)<0;if(!c.hidden)shown++;});
+      [].forEach.call(root.querySelectorAll('.pgroup'),function(g){g.hidden=!g.querySelector('.pcard:not([hidden])');});
+      var el=document.getElementById('pkshown');if(el)el.textContent=kinds.length?('显示 '+shown+' / '+cards.length+' 个'):'';
+    }
+    chips.forEach(function(c){c.addEventListener('click',function(){
+      var k=c.dataset.kind;
+      if(!k){kinds=[];}else{var i=kinds.indexOf(k);if(i>=0)kinds.splice(i,1);else kinds.push(k);}
+      applyFilter();
+    });});
+    applyFilter();count();
+    function pickText(){
+      var lines=['我在“选地方”页选了这些（网站生成于 '+(root.dataset.generated||'')+'）：'];
+      cards.forEach(function(c){
+        var id=c.dataset.id;if(!Object.prototype.hasOwnProperty.call(sel,id))return;
+        var days=Array.isArray(sel[id])&&sel[id].length?sel[id].join('、'):'不限';
+        lines.push('- ['+id+'] '+c.dataset.name+'（想哪天：'+days+'）');
+      });
+      lines.push('没选的我先不去。');
+      return lines.join('\n');
+    }
+    var toast=document.getElementById('pktoast'),toastT=null;
+    function say(msg){toast.textContent=msg;toast.hidden=false;clearTimeout(toastT);toastT=setTimeout(function(){toast.hidden=true;},2600);}
+    var dlg=document.getElementById('pkdlg'),ta=document.getElementById('pktext');
+    function showText(t){ta.value=t;dlg.hidden=false;ta.focus();ta.select();}
+    document.getElementById('pkselect').addEventListener('click',function(){ta.focus();ta.select();try{ta.setSelectionRange(0,ta.value.length);}catch(e){}});
+    ta.addEventListener('focus',function(){ta.select();});
+    document.getElementById('pkclose').addEventListener('click',function(){dlg.hidden=true;});
+    document.getElementById('pkcopy').addEventListener('click',function(){
+      var n=count();if(!n){say('还没选地方：先在卡片上点“想去”');return;}
+      var t=pickText();
+      try{
+        if(!navigator.clipboard||!window.isSecureContext)throw new Error('no clipboard');
+        navigator.clipboard.writeText(t).then(function(){say('已复制 '+n+' 个地方，去贴给 agent');},function(){showText(t);});
+      }catch(e){showText(t);}
+    });
+    window.tripPickText=pickText;  // 便于在浏览器控制台里查看将要复制的文字
+  }
+  document.addEventListener('DOMContentLoaded',function(){initMaps();initToday();initFold();initPick();tick();setInterval(tick,30000);});
 })();

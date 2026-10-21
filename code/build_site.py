@@ -3,7 +3,8 @@
   python3 tools/build_site.py                    # 输出到 _site/
   python3 tools/build_site.py --root DIR --out DIR
 
-页面：首页（今天与明天、要提前做的、待你定、每天入口）、每天一页、三个地区页、决定页、图片来源页、code/（工具代码与 MIT 许可）。
+页面：首页（今天与明天、要提前做的、待你定、每天入口）、每天一页、三个地区页、“选地方”页（pick.html：勾选想去的地方与
+想哪天，复制成一段文字给 agent）、决定页、图片来源页、code/（工具代码与 MIT 许可）。
 名单里带“=>”的词先替换（如名字显示成“本人”），邮箱打码；扫描仍发现名单词、邮箱、订单号样式就以 1 退出，不能发布。
 数据不合格式时照常生成能生成的部分；格式问题用 check.py 查。依赖：jinja2、pyyaml、markdown（见 requirements.txt）。
 """
@@ -29,6 +30,20 @@ TZ = ZoneInfo("Europe/Vienna")
 AREA_SLUG = {"布达佩斯": "area-budapest", "维也纳": "area-vienna", "湖区": "area-lakes"}
 COLOR_REC, COLOR_OTHER = "#1d1d1f", "#2f6fdb"
 PRI_ORDER = {p: i for i, p in enumerate(tripdata.PRIORITIES)}
+# “选地方”页：不列交通、住宿；类别筛选按这个顺序（只显示有地点的类别）
+PICK_SKIP = {"交通", "住宿"}
+PICK_KINDS = ["徒步", "景点", "小镇", "美食", "抱石", "观景", "购物", "其他"]
+# “选地方”页每个地区可选的日期。来源：主会话 10-21 的任务包（agents/pick_page_20261021-2158/PACKET.md）。
+# 对照天页 YAML 头：10-25、10-26 在布达佩斯；10-27 白天维也纳、晚上住 Bad Ischl；10-28、10-29 湖区；
+# 10-30 白天 Bad Ischl、晚上回维也纳；10-31 天页是维也纳（湖区 10-31 留着：决定 W-04 若选 A，本人 10-31 上午还在 Bad Ischl）；11-01 只有回程，不列。
+PICK_DATES = {"布达佩斯": ["2026-10-25", "2026-10-26"],
+              "维也纳": ["2026-10-27", "2026-10-30", "2026-10-31"],
+              "湖区": ["2026-10-27", "2026-10-28", "2026-10-29", "2026-10-30", "2026-10-31"]}
+
+
+def pickable(p):
+    """“选地方”页列不列它：交通、住宿不列；`pick: false` 的（如会场这类硬节点）也不列。"""
+    return p.get("kind") not in PICK_SKIP and p.get("pick") is not False
 
 
 class Site:
@@ -145,8 +160,9 @@ class Site:
                       day=d, maps=bool(d["map"]["points"]), prev=days[i - 1] if i else None,
                       next=days[i + 1] if i + 1 < len(days) else None)
         todo_open = [t for t in self.data["todo"] if t.get("状态") in ("待办", "进行中")]
+        pick_n = sum(1 for p in self.places.values() if p.get("area") in AREA_SLUG and pickable(p))
         self.page("index.html", "index.html", title="首页", page_id="index", days=days, todo_open=todo_open,
-                  decisions=self.data["decisions"])
+                  decisions=self.data["decisions"], pick_n=pick_n)
         used = self.usage(days)
         for name, slug in AREA_SLUG.items():
             items = [{**p, "used": used.get(pid, [])} for pid, p in self.places.items() if p.get("area") == name]
@@ -161,6 +177,7 @@ class Site:
             area = {"name": name, "slug": slug, "places": items, "map": {"points": pts}, "map_json": self.map_json(pts),
                     "groups": sorted(groups.items(), key=lambda kv: -len(kv[1]))}
             self.page("area.html", f"{slug}.html", title=name, page_id=slug, area=area, maps=bool(pts))
+        self.build_pick()
         self.page("decisions.html", "decisions.html", title="决定", page_id="decisions", decisions=self.data["decisions"])
         credits = [{"name": self.places.get(pid, {}).get("name", pid), **img} for pid, img in sorted(self.images.items())
                    if isinstance(img, dict)]
@@ -168,6 +185,26 @@ class Site:
         self.copy_static()
         self.old_links()
         (self.out / ".nojekyll").write_text("")
+
+    def build_pick(self):
+        """“选地方”页：可去的地点按地区分组，组内按 heat 从高到低、再按 priority；勾选在浏览器里做（site.js）。"""
+        titles = {d["date_iso"]: d["meta"].get("title", "") for d in self.days}
+        groups, kinds = [], {}
+        for name, slug in AREA_SLUG.items():
+            items = [p for p in self.places.values() if p.get("area") == name and pickable(p)]
+            items.sort(key=lambda p: (-(p.get("heat") or 0), PRI_ORDER.get(p.get("priority"), 9), p["name"]))
+            if not items:
+                continue
+            for p in items:
+                kinds[p.get("kind") or "其他"] = kinds.get(p.get("kind") or "其他", 0) + 1
+            dates = []
+            for iso in PICK_DATES.get(name, []):
+                dt = datetime.fromisoformat(iso).date()
+                dates.append({"mmdd": f"{dt:%m-%d}", "label": f"{dt:%m-%d} {tripdata.weekday(dt)}", "title": titles.get(iso, "")})
+            groups.append({"name": name, "slug": slug.replace("area-", "pick-"), "places": items, "dates": dates})
+        kind_list = [(k, kinds[k]) for k in PICK_KINDS if k in kinds] + [(k, n) for k, n in kinds.items() if k not in PICK_KINDS]
+        self.page("pick.html", "pick.html", title="选地方", page_id="pick", groups=groups, kinds=kind_list,
+                  total=sum(len(g["places"]) for g in groups))
 
     def old_links(self):
         # 旧站（10-19 前）的页面名改成跳转页，存过的旧链接仍能打开

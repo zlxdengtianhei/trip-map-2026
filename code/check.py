@@ -3,8 +3,9 @@
   python3 tools/check.py            # 检查本仓
   python3 tools/check.py --root tools/examples/sample
 
-查：天页 YAML 头齐全、pace 合法、[[id]] 都在地点库；地点库必填字段齐全、id 不重复；要提前做的状态合法；
-“待你定”不超过 3 条；U- 原话 id 在 log/原话/ 里找得到；喂给网站的文件（以及已有的 _site/）里没有隐私词。
+查：天页 YAML 头齐全、pace 合法、[[id]] 都在地点库；地点库必填字段齐全、id 不重复，可选的 heat、sources、transit
+写法对、sources 里的资料文件都在；要提前做的状态合法；“待你定”不超过 3 条；U- 原话 id 在 log/原话/ 里找得到；
+喂给网站的文件（以及已有的 _site/）里没有隐私词。
 退出码：0 没问题；1 有问题（逐条打印 文件:行：说明）；2 检查本身跑不了。
 """
 import argparse
@@ -33,6 +34,14 @@ def check_quote_ids(root, problems):
             for uid in UID.findall(line):
                 if uid not in known:
                     problems.add(p.relative_to(root), i, f"原话 {uid} 在 log/原话/ 里找不到")
+
+
+def check_sources(root, data, problems):
+    # sources 的写法在 tripdata 里查；这里只查文件在不在（地点从资料里来，资料没了就找不回出处）
+    for pid, p in data["places"].items():
+        for x in p.get("sources") or []:
+            if not x.startswith("/") and ".." not in Path(x).parts and not (root / x).exists():
+                problems.add("data/places.yaml", p.get("_line", 0), f"{pid} 的 sources 里 {x} 不存在")
 
 
 def check_privacy(root, problems):
@@ -64,6 +73,7 @@ def main(argv=None):
         print(f"检查本身出错：{type(e).__name__}: {e}", file=sys.stderr)
         return 2
     check_quote_ids(root, problems)
+    check_sources(root, data, problems)
     check_privacy(root, problems)
     for f, ln, msg in problems:
         print(f"{f}:{ln}：{msg}")
