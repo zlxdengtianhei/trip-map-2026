@@ -16,6 +16,13 @@ PACES = ["紧", "稍紧", "中", "松"]
 TODO_STATES = ["待办", "进行中", "已完成", "不做了"]
 SECTIONS = ["一句话", "推荐的一套", "按时段的候选", "分头与汇合", "下雨怎么办", "交通", "明天注意"]
 PLACE_REQUIRED = ["id", "name", "area", "kind", "who", "priority", "reason"]
+# 地点的可选小节 trail（徒步路线的难度、长度、评分等，见 docs/格式.md 第 1 节）
+TRAIL_DIFFICULTY = ["简单", "中等", "困难"]
+TRAIL_TYPES = ["环线", "往返", "单程"]
+TRAIL_REQUIRED = ["difficulty", "length_km", "source"]
+TRAIL_TEXT = ["time", "scenery", "autumn", "source"]  # 一句文字，不换行
+TRAIL_KEYS = ["difficulty", "length_km", "ascent_m", "time", "type", "rating", "reviews", "url", "scenery", "autumn", "source"]
+TAKEN = re.compile(r"^\d{4}(?:-\d{2}-\d{2})?$")
 DAY_REQUIRED = ["date", "title", "area", "pace"]
 REF = re.compile(r"\[\[([^\]\n]+)\]\]")
 ID = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
@@ -97,6 +104,7 @@ def load_places(root, problems):
             problems.add("data/places.yaml", ln, f"{pid} 的 coords 要写成 [纬度, 经度]")
             p["coords"] = None
         _check_pick_fields(p, pid, ln, problems)
+        _check_trail(p, pid, ln, problems)
         if pid:
             places[pid] = p
     return places
@@ -127,6 +135,91 @@ def _check_pick_fields(p, pid, ln, problems):
             p["transit"] = " ".join(t.split())
 
 
+def _num(x):
+    return isinstance(x, (int, float)) and not isinstance(x, bool)
+
+
+def _check_trail(p, pid, ln, problems):
+    """可选的 trail 小节：写错的字段报出来并当作没写（整节不是键值对就整节当没写），网站照常生成。"""
+    t = p.get("trail")
+    if t is None:
+        return
+    where = f"{pid} 的 trail"
+    if not isinstance(t, dict):
+        problems.add("data/places.yaml", ln, f"{where} 要写成键值对小节（difficulty、length_km 等，见格式页第 1 节）")
+        p["trail"] = None
+        return
+    for k in list(t):
+        if k not in TRAIL_KEYS:
+            problems.add("data/places.yaml", ln, f"{where} 里的 {k} 不是格式页的字段（{'、'.join(TRAIL_KEYS)}）")
+            t.pop(k)
+    bad = []
+    v = t.get("difficulty")
+    if v is not None and v not in TRAIL_DIFFICULTY:
+        bad.append(("difficulty", f"要写 {' | '.join(TRAIL_DIFFICULTY)}"))
+    v = t.get("type")
+    if v is not None and v not in TRAIL_TYPES:
+        bad.append(("type", f"要写 {' | '.join(TRAIL_TYPES)}"))
+    v = t.get("length_km")
+    if v is not None and not (_num(v) and v > 0):
+        bad.append(("length_km", "要写成大于 0 的数（公里）"))
+    v = t.get("ascent_m")
+    if v is not None and not (_num(v) and v >= 0):
+        bad.append(("ascent_m", "要写成 0 或正数（米）"))
+    v = t.get("rating")
+    if v is not None and not (_num(v) and 0 <= v <= 5):
+        bad.append(("rating", "要写成 0—5 的数"))
+    v = t.get("reviews")
+    if v is not None and not (isinstance(v, int) and not isinstance(v, bool) and v >= 0):
+        bad.append(("reviews", "要写成 0 或正整数（评价条数）"))
+    v = t.get("url")
+    if v is not None and not (isinstance(v, str) and re.match(r"^https?://\S+$", v.strip())):
+        bad.append(("url", "要写成 http(s):// 开头的一个网址"))
+    for k in TRAIL_TEXT:
+        v = t.get(k)
+        if v is None:
+            continue
+        if not isinstance(v, str) or not v.strip():
+            bad.append((k, "要写成一句文字"))
+        elif "\n" in v.strip():
+            problems.add("data/places.yaml", ln, f"{where} 的 {k} 只写一句，不换行")
+            t[k] = " ".join(v.split())
+    for k, why in bad:
+        problems.add("data/places.yaml", ln, f"{where} 的 {k} {why}，现在是 “{t[k]}”")
+        t.pop(k)
+    for k in TRAIL_REQUIRED:
+        if t.get(k) in (None, "") and k not in dict(bad):
+            problems.add("data/places.yaml", ln, f"{where} 缺必填字段 {k}")
+    if isinstance(t.get("url"), str):
+        t["url"] = t["url"].strip()
+
+
+def _check_taken(img, pid, ln, problems):
+    """图片的可选字段 taken（拍摄年份或日期）：统一成 "YYYY" 或 "YYYY-MM-DD" 文字；写错的报出来并当作没写。"""
+    v = img.get("taken")
+    if v is None:
+        return
+    if isinstance(v, date):  # YAML 会把不带引号的 2019-05-03 读成日期
+        s = v.isoformat()[:10]
+    elif isinstance(v, int) and not isinstance(v, bool):
+        s = str(v)
+    else:
+        s = str(v).strip()
+    ok = bool(TAKEN.match(s))
+    if ok and len(s) == 10:
+        try:
+            date.fromisoformat(s)
+        except ValueError:
+            ok = False
+    if ok and not 1826 <= int(s[:4]) <= date.today().year:
+        ok = False
+    if not ok:
+        problems.add("data/images.yaml", ln, f"{pid} 的 taken 要写成拍摄年份 YYYY 或日期 YYYY-MM-DD（不晚于今年），现在是 “{v}”")
+        img.pop("taken")
+        return
+    img["taken"] = s
+
+
 def load_images(root, problems, places):
     path = root / "data" / "images.yaml"
     if not path.exists():
@@ -143,6 +236,8 @@ def load_images(root, problems, places):
             problems.add("data/images.yaml", lines.get(pid, 0), f"{pid} 不在地点库里")
         if isinstance(img, dict) and img.get("file") and not (root / img["file"]).exists():
             problems.add("data/images.yaml", lines.get(pid, 0), f"{pid} 的图片文件 {img['file']} 不存在")
+        if isinstance(img, dict):
+            _check_taken(img, pid, lines.get(pid, 0), problems)
     return data
 
 

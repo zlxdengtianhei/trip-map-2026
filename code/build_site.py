@@ -3,8 +3,8 @@
   python3 tools/build_site.py                    # 输出到 _site/
   python3 tools/build_site.py --root DIR --out DIR
 
-页面：首页（今天与明天、要提前做的、待你定、每天入口）、每天一页、三个地区页、“选地方”页（pick.html：勾选想去的地方与
-想哪天，复制成一段文字给 agent）、决定页、图片来源页、code/（工具代码与 MIT 许可）。
+页面：首页（今天与明天、要提前做的、待你定、每天入口）、每天一页、三个地区页、“选地方”页（pick.html：每个地方标想去、
+不去或不标，想去的选想哪天，复制成一段文字给 agent）、决定页、图片来源页、code/（工具代码与 MIT 许可）。
 名单里带“=>”的词先替换（如名字显示成“本人”），邮箱打码；扫描仍发现名单词、邮箱、订单号样式就以 1 退出，不能发布。
 数据不合格式时照常生成能生成的部分；格式问题用 check.py 查。依赖：jinja2、pyyaml、markdown（见 requirements.txt）。
 """
@@ -46,6 +46,39 @@ def pickable(p):
     return p.get("kind") not in PICK_SKIP and p.get("pick") is not False
 
 
+def _n(x):
+    """9.0 → "9"，9.8 → "9.8"，2300 → "2,300"。"""
+    return f"{x:,.0f}" if float(x).is_integer() else f"{x:,}"
+
+
+def trail_view(t):
+    """地点 trail 小节 → 卡片要显示的几行（模板里用 trail(p.trail)）。字段已在 tripdata 里校验，写错的已去掉。
+
+    line：要点一行“中等 · 9.8 km · 爬升 420 m · 3–3.5 h · 环线”；rest：难度以外的部分（难度单独上色）；
+    rating：“AllTrails 4.8（2,300 条评价）”，来源名取 source 括号前的部分，括号里的（如“10-22 查”）放 when；
+    link_label：去哪个网站看图与评价（url 是 alltrails.com 就写 AllTrails，否则写来源名）。
+    """
+    if not isinstance(t, dict) or not t:
+        return None
+    parts = [f"{_n(t['length_km'])} km" if t.get("length_km") is not None else None]
+    parts.append(f"爬升 {_n(t['ascent_m'])} m" if t.get("ascent_m") is not None else None)
+    parts += [t.get("time"), t.get("type")]
+    source = (t.get("source") or "").strip()
+    m = re.match(r"^(.*?)\s*[（(](.*)[）)]\s*$", source)
+    name, when = (m.group(1).strip(), m.group(2).strip()) if m and m.group(1).strip() else (source, "")
+    url = t.get("url") or ""
+    site = "AllTrails" if "alltrails.com" in url.lower() else (name or "来源网站")
+    rating = None
+    if t.get("rating") is not None:
+        rating = f"{name or '评分'} {_n(t['rating'])}"
+        if t.get("reviews") is not None:
+            rating += f"（{_n(t['reviews'])} 条评价）"
+    rest = " · ".join(str(x) for x in parts if x not in (None, ""))
+    return {"line": " · ".join(x for x in [t.get("difficulty"), rest] if x), "difficulty": t.get("difficulty"), "rest": rest,
+            "rating": rating, "when": when, "source": source, "scenery": t.get("scenery"), "autumn": t.get("autumn"),
+            "url": url, "link_label": f"去 {site} 看图与评价"}
+
+
 class Site:
     def __init__(self, root, out):
         self.root, self.out = Path(root), Path(out)
@@ -59,6 +92,7 @@ class Site:
         self.policy = privacy.load(self.root / "config" / "privacy.txt")
         self.env = Environment(loader=FileSystemLoader(str(self.root / "site" / "templates")), autoescape=True,
                                trim_blocks=False)
+        self.env.globals["trail"] = trail_view
         self.cards = {}  # 天页 slug → 有卡片的地点 id
 
     # ---- 文字 ----

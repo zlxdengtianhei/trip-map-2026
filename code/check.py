@@ -4,8 +4,9 @@
   python3 tools/check.py --root tools/examples/sample
 
 查：天页 YAML 头齐全、pace 合法、[[id]] 都在地点库；地点库必填字段齐全、id 不重复，可选的 heat、sources、transit
-写法对、sources 里的资料文件都在；要提前做的状态合法；“待你定”不超过 3 条；U- 原话 id 在 log/原话/ 里找得到；
-喂给网站的文件（以及已有的 _site/）里没有隐私词。
+与 trail 小节（徒步路线：难度、长度、评分等）写法对、sources 里的资料文件都在；图片的 taken（拍摄年份或日期）写法对；
+要提前做的状态合法；“待你定”不超过 3 条；U- 原话 id 在 log/原话/ 里找得到；喂给网站的文件（以及已有的 _site/）里没有隐私词。
+字段写法在 tripdata.py 里查（写错的报出来，网站当作没写）；这里另查要读文件系统的（资料文件在不在）。
 退出码：0 没问题；1 有问题（逐条打印 文件:行：说明）；2 检查本身跑不了。
 """
 import argparse

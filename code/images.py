@@ -3,8 +3,17 @@
   python3 tools/images.py find katrin                 # 列候选，缩略图下载到 data/cache/images/katrin/，先看图
   python3 tools/images.py pick katrin "File:BadIschlKatrinSiriuskoglTraun.JPG"   # 960px 存 images/katrin.jpg，写 data/images.yaml
   python3 tools/images.py add-url katrin https://…    # 记用户给的外链（许可证未知，网站只放“查看图片”链接）
+  python3 tools/images.py find nussensee --since 2018 --cat Nussensee -n 20   # 只列 2018 年及以后拍的；加查 Commons 分类
+  python3 tools/images.py fill-taken                  # 给 data/images.yaml 里还没有 taken 的条目补拍摄日期
 
 find 只列候选，不替你判断：坐标搜索常混进无关的照片（选型实测：缆车站旁的胡蜂照片），pick 之前必须看图。
+拍摄日期（10-22 加）：find 每行开头显示 [拍摄年份]，pick 把它写进该条的 taken。来源是 Commons 文件页的
+DateTimeOriginal（EXIF 或描述里的 date），写成 YYYY-MM-DD，缺日子（只到月或年）写 YYYY；
+文件页没有拍摄日期（或只写了“original upload date”）时，先看分类“… photographs taken on YYYY-MM-DD”，
+再没有才用上传日期，并加 taken_from: upload。
+--since 年份：只留该年及以后拍的候选（按上传日期代替的也按它算）。
+--cat 分类名：再列 Commons 该分类里最新加入的 n 个文件（地点的分类往往比搜索准，新图也多）。
+  按上传时间排的全文搜索试过：混进大量别处的同名纪念碑、人像，不用。
 退出码：0 成功；1 没有候选；2 输入或网络错误。
 """
 import argparse
@@ -87,27 +96,74 @@ def _strip(s):
     return re.sub(r"\s+", " ", html.unescape(re.sub(r"<[^>]+>", "", s or ""))).strip()
 
 
+MONTHS = "january february march april may june july august september october november december".split()
+_MON = r"(" + "|".join(MONTHS) + r")"
+_Y = r"((?:19|20)\d\d)"
+
+
+def parse_date(s):
+    """一段日期文字 → YYYY-MM-DD，缺日子的给 YYYY（data/images.yaml 只认这两种）；认不出给 None。
+    实见写法：2016-08-14 15:59:05、2012-07、
+    Taken on 21 April 2018, 11:36、July 3, 2019、30.10.2006、30.02006（坏写法，只取年）。"""
+    s = (s or "").lower()
+    if m := re.search(rf"(?<!\d){_Y}-(\d\d)(?:-(\d\d))?(?!\d)", s):
+        return f"{m[1]}-{m[2]}-{m[3]}" if m[3] else m[1]
+    if m := re.search(rf"(?<!\d)(\d{{1,2}})\.?\s+{_MON},?\s+{_Y}", s):
+        return f"{m[3]}-{MONTHS.index(m[2]) + 1:02d}-{int(m[1]):02d}"
+    if m := re.search(rf"{_MON}\s+(\d{{1,2}}),?\s+{_Y}", s):
+        return f"{m[3]}-{MONTHS.index(m[1]) + 1:02d}-{int(m[2]):02d}"
+    if m := re.search(rf"{_MON},?\s+{_Y}", s):
+        return m[2]
+    if m := re.search(rf"(?<!\d)(\d{{1,2}})\.(\d{{1,2}})\.{_Y}", s):
+        return f"{m[3]}-{int(m[2]):02d}-{int(m[1]):02d}"
+    if m := re.search(rf"{_Y}(?!\d)", s):
+        return m[1]
+    return None
+
+
+def taken_date(raw, uploaded, cats=""):
+    """(taken, 来源)：先用 DateTimeOriginal，去掉其中“(… (original upload date))”那段；再看分类
+    “photographs taken on YYYY-MM-DD”；都没有就用上传日期，来源记 upload。"""
+    s = _strip(raw)
+    own = re.sub(r"\(?[^()]*\(original upload date\)\)?", " ", s, flags=re.I)
+    if d := parse_date(own):
+        return d, None
+    if m := re.search(r"taken on ((?:19|20)\d\d-\d\d-\d\d)", cats or "", re.I):
+        return m[1], None
+    return (parse_date(s) or (uploaded or "")[:10] or None), "upload"
+
+
 def file_info(titles, width):
-    """Commons 文件信息：{title: {thumb, page, license, license_url, author, mime, w, h}}；不在 Commons 的文件不返回。"""
+    """Commons 文件信息：{title: {thumb, page, license, license_url, author, mime, w, h, taken, taken_from}}；
+    不在 Commons 的文件不返回。"""
     out = {}
     for i in range(0, len(titles), 40):
-        js = _api("commons.wikimedia.org", prop="imageinfo", iiprop="url|extmetadata|mime|size", iiurlwidth=width,
-                  titles="|".join(titles[i:i + 40]))
+        js = _api("commons.wikimedia.org", prop="imageinfo", iiprop="url|extmetadata|mime|size|timestamp",
+                  iiurlwidth=width, titles="|".join(titles[i:i + 40]))
         for pg in js.get("query", {}).get("pages", {}).values():
             ii = (pg.get("imageinfo") or [None])[0]
             if not ii:
                 continue
             em = ii.get("extmetadata", {})
             val = lambda k: _strip((em.get(k) or {}).get("value"))
+            taken, taken_from = taken_date((em.get("DateTimeOriginal") or {}).get("value"), ii.get("timestamp"),
+                                           val("Categories"))
             out[pg["title"]] = {"thumb": ii.get("thumburl") or ii.get("url"), "page": ii.get("descriptionurl"),
                                 "license": val("LicenseShortName") or "未知", "license_url": val("LicenseUrl"),
                                 "author": val("Artist") or val("Credit") or "未知", "mime": ii.get("mime"),
-                                "w": ii.get("width"), "h": ii.get("height"), "date": val("DateTimeOriginal")[:10]}
+                                "w": ii.get("width"), "h": ii.get("height"), "taken": taken, "taken_from": taken_from}
     return out
 
 
-def candidates(p, radius_m=500, n=6, queries=None):
-    """按条目配图 → Commons 坐标搜索 → Commons 全文搜索收集文件名，返回 [(File:…, 来源说明)]，已去掉非照片。"""
+def taken_label(meta):
+    """find 每行开头的 [年份]；上传日期代替的写 [上传 年份]。"""
+    y = (meta.get("taken") or "????")[:4]
+    return f"[上传 {y}]" if meta.get("taken_from") == "upload" else f"[{y}]"
+
+
+def candidates(p, radius_m=500, n=6, queries=None, cats=()):
+    """按条目配图 → Commons 坐标搜索 → Commons 全文搜索 → 指定分类（最新加入的在前）收集文件名，
+    返回 [(File:…, 来源说明)]，已去掉非照片。"""
     names = queries or [x for x in dict.fromkeys([p.get("name_local"), p.get("name")]) if x]
     xy = tuple(p["coords"][:2]) if p.get("coords") else None
     found = {}
@@ -140,12 +196,18 @@ def candidates(p, radius_m=500, n=6, queries=None):
         js = _api("commons.wikimedia.org", list="search", srsearch=q, srnamespace=6, srlimit=n)
         for h in js.get("query", {}).get("search", []):
             add(h["title"], f"Commons 全文搜索“{q}”")
+    for c in cats:
+        c = c if c.startswith("Category:") else "Category:" + c
+        js = _api("commons.wikimedia.org", list="categorymembers", cmtitle=c, cmtype="file", cmlimit=n,
+                  cmsort="timestamp", cmdir="desc")
+        for h in js.get("query", {}).get("categorymembers", []):
+            add(h["title"], f"Commons 分类“{c[9:]}”")
     return list(found.items())
 
 
-def find(pid, radius_m=500, n=6, queries=None):
+def find(pid, radius_m=500, n=6, queries=None, since=None, cats=()):
     p = place(pid)
-    cands = candidates(p, radius_m, n, queries)
+    cands = candidates(p, radius_m, n, queries, cats=cats)
     info = file_info([t for t, _ in cands], PREVIEW_W)
     folder = CACHE / pid
     folder.mkdir(parents=True, exist_ok=True)
@@ -156,6 +218,8 @@ def find(pid, radius_m=500, n=6, queries=None):
         meta = info.get(t)
         # 实景照片基本是 JPEG；PNG 多是地图、示意图（旧系统取图的经验）。
         if not meta or meta["mime"] != "image/jpeg":
+            continue
+        if since and (meta["taken"] or "0")[:4] < str(since):
             continue
         k = len(rows) + 1
         path = folder / f"{k:02d}.jpg"
@@ -194,10 +258,34 @@ def pick(pid, title):
     data = _load_yaml()
     data[pid] = {"file": str(path.relative_to(ROOT)), "author": meta["author"], "license": meta["license"],
                  "license_url": meta["license_url"] or None, "source_page": meta["page"],
+                 "taken": meta["taken"], "taken_from": meta["taken_from"],
                  "fetched": date.today().isoformat(), "checked_by_agent": True}
     data[pid] = {k: v for k, v in data[pid].items() if v is not None}
     _save_yaml(data)
     return path, data[pid]
+
+
+def fill_taken(redo=False):
+    """给 data/images.yaml 里来自 Commons、还没有 taken 的条目补拍摄日期（redo 时全部重取）；返回 [(id, taken, taken_from)]。"""
+    data = _load_yaml()
+    todo = {}
+    for pid, img in data.items():
+        sp = (img.get("source_page") or "") if isinstance(img, dict) else ""
+        if "commons.wikimedia.org/wiki/" in sp and (redo or not img.get("taken")):
+            todo["File:" + urllib.parse.unquote(sp.split("/wiki/File:", 1)[1]).replace("_", " ")] = pid
+    info = file_info(list(todo), PREVIEW_W)
+    done = []
+    for title, pid in todo.items():
+        meta = info.get(title)
+        if not meta:
+            continue
+        img = {k: v for k, v in data[pid].items() if k not in ("taken", "taken_from")}
+        head = {k: img.pop(k) for k in ("file", "url", "author", "license", "license_url", "source_page") if k in img}
+        new = {"taken": meta["taken"], "taken_from": meta["taken_from"]}
+        data[pid] = {**head, **{k: v for k, v in new.items() if v is not None}, **img}
+        done.append((pid, meta["taken"], meta["taken_from"]))
+    _save_yaml(data)
+    return done, [pid for t, pid in todo.items() if t not in info]
 
 
 def add_url(pid, url, note=None):
@@ -220,9 +308,13 @@ def main(argv=None):
     f.add_argument("--radius", type=int, default=500, help="Commons 坐标搜索半径（米，默认 500）")
     f.add_argument("-n", type=int, default=6, help="每种搜索最多取几条（默认 6）")
     f.add_argument("--q", action="append", help="换一个搜索词（可写多次）；默认用 name_local 与 name")
+    f.add_argument("--since", type=int, help="只列该年及以后拍的（例如 2018）")
+    f.add_argument("--cat", action="append", default=[], help="再列 Commons 这个分类里最新加入的 n 个文件（可写多次）")
     k = sub.add_parser("pick", help="选定一张：下载 960px，写许可证")
     k.add_argument("id")
     k.add_argument("title", help="File:… 文件名（find 列出的）")
+    t = sub.add_parser("fill-taken", help="给还没有 taken 的条目补拍摄日期")
+    t.add_argument("--redo", action="store_true", help="已有 taken 的也重取")
     u = sub.add_parser("add-url", help="记用户给的外链")
     u.add_argument("id")
     u.add_argument("url")
@@ -230,18 +322,24 @@ def main(argv=None):
     a = ap.parse_args(argv)
     try:
         if a.cmd == "find":
-            p, rows = find(a.id, a.radius, a.n, a.q)
+            p, rows = find(a.id, a.radius, a.n, a.q, a.since, a.cat)
             print(f"{a.id}：{p.get('name')}（{p.get('name_local') or ''}）  坐标 {p.get('coords') or '无'}")
             if not rows:
                 print("没有候选。可以加大 --radius，或请用户给链接（add-url）。")
                 return 1
             for r in rows:
-                print(f"{r['n']:02d}  {r['title']}\n    {r['why']}｜{r['license']}｜{r['author'][:50]}｜{r['w']}×{r['h']}"
-                      f"{'｜' + r['date'] if r['date'] else ''}\n    看图：{r['preview']}")
+                print(f"{r['n']:02d}  {taken_label(r)}  {r['title']}\n    {r['why']}｜{r['license']}｜{r['author'][:50]}｜"
+                      f"{r['w']}×{r['h']}｜{'上传' if r['taken_from'] else '拍摄'} {r['taken'] or '未知'}\n    看图：{r['preview']}")
             print(f"\n看过图再选：python3 tools/images.py pick {a.id} \"File:…\"")
         elif a.cmd == "pick":
             path, meta = pick(a.id, a.title)
-            print(f"存好 {path.relative_to(ROOT)}；data/images.yaml 记：{meta['author']} · {meta['license']} · {meta['source_page']}")
+            print(f"存好 {path.relative_to(ROOT)}；data/images.yaml 记：{meta['author']} · {meta['license']} · "
+                  f"{'上传' if meta.get('taken_from') else '拍摄'} {meta.get('taken') or '未知'} · {meta['source_page']}")
+        elif a.cmd == "fill-taken":
+            done, missing = fill_taken(a.redo)
+            for pid, taken, src in done:
+                print(f"{pid}  {taken or '未知'}{'（上传日期）' if src else ''}")
+            print(f"补好 {len(done)} 条" + (f"；Commons 上找不到：{', '.join(missing)}" if missing else ""))
         else:
             meta = add_url(a.id, a.url, a.note)
             print(f"记好 {a.id} 的外链（许可证未知，网站只放链接，不嵌入图）：{meta['url']}")

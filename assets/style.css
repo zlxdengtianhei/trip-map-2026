@@ -95,7 +95,6 @@ a.btn:hover{text-decoration:none}
 .pgbtn{display:flex;gap:8px}
 .pcards{display:grid;grid-template-columns:repeat(auto-fill,minmax(min(300px,100%),1fr));gap:12px}
 .pcard{background:var(--card);border:2px solid var(--line);border-radius:12px;overflow:hidden;display:flex;flex-direction:column;min-width:0}
-.pcard.sel{border-color:var(--ok)}
 .pcard[hidden],.pgroup[hidden],.pkdlg[hidden],.toast[hidden]{display:none}
 .pphoto{display:block}.pphoto img{display:block;width:100%;height:180px;object-fit:cover;background:#eee}
 .pphoto-link{display:inline-flex;align-items:center;min-height:44px;padding:0 12px;font-size:14px}
@@ -104,20 +103,41 @@ a.btn:hover{text-decoration:none}
 .tags{display:flex;flex-wrap:wrap;gap:4px;margin:6px 0 4px}.tags .badge{margin:0}
 .badge.kind{background:#f0ede6}.badge.heat{background:#eaf6ef;color:var(--ok)}
 .transit{font-size:13px;color:var(--muted);margin:2px 0}.facts .transit{display:block;margin:2px 0}
-.want{display:flex;align-items:center;gap:10px;min-height:52px;margin:10px 12px 12px;padding:0 14px;border:2px solid var(--fg);border-radius:12px;font-size:17px;font-weight:600;cursor:pointer;user-select:none;-webkit-user-select:none;-webkit-tap-highlight-color:transparent}
-.want input{width:24px;height:24px;margin:0;flex:none;accent-color:var(--ok)}
-.want .w-on{display:none}
-.pcard.sel .want{background:var(--ok);border-color:var(--ok);color:#fff}
-.pcard.sel .want .w-on{display:inline}.pcard.sel .want .w-off{display:none}
+/* 三态：想去（绿）、不去（灰，卡片变淡）、都不选＝中间。两个按钮互斥，再点一次取消 */
+.pkstat{font-size:17px;font-weight:600;margin:4px 0 6px;font-variant-numeric:tabular-nums}
+.choice{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin:10px 12px 12px}
+.cbtn{min-height:52px;padding:0 8px;border:2px solid var(--fg);border-radius:12px;background:#fff;color:var(--fg);font-size:17px;font-weight:600;cursor:pointer;font-family:inherit;user-select:none;-webkit-user-select:none;-webkit-tap-highlight-color:transparent}
+.cbtn.cno{border-color:#9a9aa0;color:#55555a}
+.cbtn[aria-pressed=true]::before{content:'✓ '}
+.pcard.sel{border-color:var(--ok)}
+.pcard.sel .cwant{background:var(--ok);border-color:var(--ok);color:#fff}
+.pcard.no{border-color:#c9c9cc;background:#f1f1ef}
+.pcard.no .pphoto,.pcard.no .pbody{opacity:.6}
+.pcard.no .cno{background:#55555a;border-color:#55555a;color:#fff}
+/* 徒步路线（地点的 trail 小节） */
+.tline{font-size:14px;margin:3px 0}.tline b{font-weight:600}
+.diff{font-weight:600}.diff.d-简单{color:var(--ok)}.diff.d-中等{color:var(--warn)}.diff.d-困难{color:var(--bad)}
+.trail{margin:6px 0;padding:6px 10px 8px;background:#f3f6f1;border-radius:8px;font-size:14px}
+.trail p{margin:3px 0}.trate{font-weight:600}
+.btn.trailbtn{margin-top:6px;font-size:14px;padding:0 14px}
+/* 图下角的“摄于 YYYY” */
+.phlink,.pphoto{position:relative}
+.taken{position:absolute;right:4px;bottom:4px;background:rgba(0,0,0,.55);color:#fff;font-size:10px;line-height:1.5;padding:0 4px;border-radius:4px;pointer-events:none;white-space:nowrap}
+.pphoto .taken{right:6px;bottom:6px;font-size:11px}
+/* 图片来源页：缩略图至少 64px 宽，下面一行“摄于” */
+.cthumb{width:80px;min-width:64px;display:block}.ctaken{font-size:11px;color:var(--muted);line-height:1.3;margin-top:2px}
 .pwhen{padding:0 12px 12px}
 .dates{display:flex;flex-wrap:wrap;gap:8px;margin-top:4px}
 .dchip{min-height:44px;padding:0 12px;border:1px solid var(--line);border-radius:22px;background:#fff;color:var(--fg);font-size:15px;font-variant-numeric:tabular-nums;cursor:pointer;font-family:inherit}
 .dchip.on{background:var(--acc);border-color:var(--acc);color:#fff}
 body[data-page=pick]{padding-bottom:84px}
 .pickfoot{position:fixed;left:0;right:0;bottom:0;z-index:1100;display:flex;align-items:center;justify-content:space-between;gap:12px;background:#fff;border-top:1px solid var(--line);box-shadow:0 -2px 8px rgba(0,0,0,.06);padding:8px 16px calc(8px + env(safe-area-inset-bottom))}
-#pkcount{font-size:16px;font-weight:600}
+#pkcount{font-size:15px;font-weight:600;font-variant-numeric:tabular-nums}
 .pkdlg{position:fixed;inset:0;z-index:1200;background:rgba(0,0,0,.45);display:flex;align-items:center;justify-content:center;padding:16px}
 .pkdlg .box{background:#fff;border-radius:12px;padding:14px;width:100%;max-width:560px}
 .pkdlg .box p{margin:0 0 8px}
 .pkdlg textarea{width:100%;font:14px/1.5 -apple-system,BlinkMacSystemFont,"PingFang SC",sans-serif;padding:8px;border:1px solid var(--line);border-radius:8px}
 .toast{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(76px + env(safe-area-inset-bottom));z-index:1150;max-width:calc(100% - 32px);background:var(--fg);color:#fff;padding:10px 16px;border-radius:20px;font-size:14px}
+
+/* 选地方页的引导：不点就是都行 */
+.pkguide{background:#fff7e0;border:1px solid #f0d58a;border-radius:10px;padding:10px 12px;margin:10px 0;font-size:1rem;line-height:1.5}
