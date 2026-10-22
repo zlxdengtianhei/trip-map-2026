@@ -1,5 +1,8 @@
 (function(){
-  // 地图：<div class="map" data-src="x"> 读同页 <script type="application/json" id="x">{points:[{lat,lon,name,note,href,color}]}</script>
+  function esc(t){return String(t==null?'':t).replace(/[&<>"']/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];});}
+  // 地图：<div class="map" data-src="x"> 读同页 <script type="application/json" id="x">{points:[{lat,lon,name,note,href,color}],
+  // near:[{lat,lon,name,kind,km,walk,from,href}]}</script>。near 是库里离当天地点 5 km 内的其他地点，画成灰点
+  // （≤2.5 km 深灰，之外浅灰）；页面上 <input data-near-for="x"> 是开关。
   function initMaps(){
     if(typeof L==='undefined')return;
     document.querySelectorAll('.map[data-src]').forEach(function(el){
@@ -7,17 +10,102 @@
       var m=L.map(el,{scrollWheelZoom:false});
       // OSM 瓦片政策要求不带子域名的地址与署名
       L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:19,attribution:'© OpenStreetMap'}).addTo(m);
-      var pts=[];
+      var pts=d.points.map(function(p){return [p.lat,p.lon];});
+      if(pts.length)m.fitBounds(pts,{padding:[30,30],maxZoom:14});else m.setView([47.8,16.5],7);  // 先定视图，再加图层
+      var nearLayer=L.layerGroup();
+      (d.near||[]).forEach(function(p){
+        var c=p.walk?'#6f6f76':'#bdbdc2';
+        L.circleMarker([p.lat,p.lon],{radius:5,color:'#fff',weight:1,fillColor:c,fillOpacity:0.9}).addTo(nearLayer)
+          .bindPopup('<b>'+esc(p.name)+'</b>'+(p.kind?' <span class="muted">'+esc(p.kind)+'</span>':'')
+            +'<br>离 '+esc(p.from)+' 约 '+esc(p.km)+' km（'+(p.walk?'步行可达':'要坐车')+'）'
+            +(p.href?'<br><a href="'+esc(p.href)+'">看卡片 →</a>':'')
+            +'<br><a href="https://www.google.com/maps/dir/?api=1&destination='+p.lat+','+p.lon+'&travelmode=transit">公交导航</a>');
+      });
+      var sw=document.querySelector('input[data-near-for="'+el.dataset.src+'"]');
+      function applyNear(){if(!sw||sw.checked)nearLayer.addTo(m);else m.removeLayer(nearLayer);}
+      applyNear();  // 先加灰点，再加彩色点，彩色的压在上面
+      if(sw)sw.addEventListener('change',applyNear);
       d.points.forEach(function(p){
         var c=p.color||'#333';
         L.circleMarker([p.lat,p.lon],{radius:8,color:c,fillColor:c,fillOpacity:0.85,weight:2}).addTo(m)
           .bindPopup('<b>'+p.name+'</b>'+(p.note?'<br>'+p.note:'')+(p.href?'<br><a href="'+p.href+'">看卡片 →</a>':'')
             +'<br><a href="https://www.google.com/maps/dir/?api=1&destination='+p.lat+','+p.lon+'&travelmode=transit">公交导航</a>');
-        pts.push([p.lat,p.lon]);
       });
-      if(pts.length)m.fitBounds(pts,{padding:[30,30],maxZoom:14});else m.setView([47.8,16.5],7);
+      el._map=m;
     });
   }
+  // 图片放大：页内浮层，不改网址、不留历史。点图、点空白、按 Esc 或点 × 都关；图有 more 时 ‹ › 或键盘左右键翻，手机上左右滑。
+  // 链接 <a data-gal='[{"src","cap"}]'> 没有脚本时照旧直接打开图片文件。
+  var lb=null;
+  function lightbox(){
+    if(lb)return lb;
+    var root=document.createElement('div');root.className='lb';root.hidden=true;root.setAttribute('role','dialog');root.setAttribute('aria-modal','true');root.setAttribute('aria-label','图片放大');
+    root.innerHTML='<button type="button" class="lbx" aria-label="关闭">×</button><button type="button" class="lbp" aria-label="上一张">‹</button><button type="button" class="lbn" aria-label="下一张">›</button><img alt=""><div class="cap"></div>';
+    document.body.appendChild(root);
+    lb={root:root,img:root.querySelector('img'),cap:root.querySelector('.cap'),x:root.querySelector('.lbx'),p:root.querySelector('.lbp'),n:root.querySelector('.lbn'),list:[],i:0,from:null};
+    function stop(e){e.stopPropagation();}
+    lb.p.addEventListener('click',function(e){stop(e);lbShow(lb.i-1);});
+    lb.n.addEventListener('click',function(e){stop(e);lbShow(lb.i+1);});
+    lb.x.addEventListener('click',function(e){stop(e);lbClose();});
+    root.addEventListener('click',lbClose);  // 点图、点空白、点说明都关
+    var sx=null;
+    root.addEventListener('touchstart',function(e){sx=e.touches.length===1?e.touches[0].clientX:null;},{passive:true});
+    root.addEventListener('touchend',function(e){
+      if(sx===null||lb.list.length<2)return;
+      var dx=e.changedTouches[0].clientX-sx;sx=null;
+      if(Math.abs(dx)>50){lbShow(lb.i+(dx<0?1:-1));lb.swiped=Date.now();}
+    },{passive:true});
+    root.addEventListener('click',function(e){if(lb.swiped&&Date.now()-lb.swiped<400){e.stopImmediatePropagation();}},true);
+    return lb;
+  }
+  function lbShow(i){
+    var n=lb.list.length;if(!n)return;
+    lb.i=(i+n)%n;var it=lb.list[lb.i];
+    lb.img.src=it.src;lb.img.alt=it.cap||'';
+    lb.cap.innerHTML=esc(it.cap||'')+(n>1?'<span class="n">'+(lb.i+1)+' / '+n+'</span>':'');
+    lb.p.hidden=lb.n.hidden=n<2;
+  }
+  function lbOpen(list,i,from){
+    lightbox();lb.list=list;lb.from=from||null;lb.root.hidden=false;
+    document.body.classList.add('lbopen');lbShow(i||0);lb.x.focus();
+  }
+  function lbClose(){
+    if(!lb||lb.root.hidden)return;
+    lb.root.hidden=true;lb.img.removeAttribute('src');document.body.classList.remove('lbopen');
+    if(lb.from&&lb.from.focus){try{lb.from.focus({preventScroll:true});}catch(e){}}
+  }
+  function initLightbox(){
+    document.addEventListener('click',function(e){
+      var a=e.target.closest&&e.target.closest('a[data-gal]');
+      if(!a||e.defaultPrevented||e.button>0||e.metaKey||e.ctrlKey||e.shiftKey)return;
+      var list;try{list=JSON.parse(a.dataset.gal);}catch(x){return;}
+      if(!list||!list.length)return;
+      e.preventDefault();lbOpen(list,0,a);
+    });
+  }
+  // 时间轴：点一个块，把它隐藏的详情放进弹窗（点 ×、点空白、按 Esc 或点详情里的链接都关）
+  function initTimeline(){
+    var modal=document.getElementById('tlmodal');if(!modal)return;
+    var body=document.getElementById('tlmodalbody'),from=null;
+    function close(){if(modal.hidden)return;modal.hidden=true;document.body.classList.remove('lbopen');if(from&&from.focus){try{from.focus({preventScroll:true});}catch(e){}}}
+    document.querySelectorAll('.blk[data-d]').forEach(function(b){b.addEventListener('click',function(){
+      var src=document.getElementById(b.dataset.d);if(!src)return;
+      body.innerHTML=src.innerHTML;from=b;modal.hidden=false;document.body.classList.add('lbopen');
+      modal.querySelector('.x').focus();
+    });});
+    modal.addEventListener('click',function(e){if(e.target===modal||e.target.closest('.x')||e.target.closest('a'))close();});
+    modal._close=close;
+  }
+  document.addEventListener('keydown',function(e){
+    if(lb&&!lb.root.hidden){
+      if(e.key==='Escape'){lbClose();e.preventDefault();}
+      else if(e.key==='ArrowLeft'&&lb.list.length>1){lbShow(lb.i-1);e.preventDefault();}
+      else if(e.key==='ArrowRight'&&lb.list.length>1){lbShow(lb.i+1);e.preventDefault();}
+      return;
+    }
+    var m=document.getElementById('tlmodal');
+    if(e.key==='Escape'&&m&&!m.hidden&&m._close){m._close();e.preventDefault();}
+  });
   // 首页：按维也纳日期显示今天与明天；行程没开始显示第一天，结束后显示最后一天
   function viennaDate(d){return new Intl.DateTimeFormat('en-CA',{timeZone:'Europe/Vienna',year:'numeric',month:'2-digit',day:'2-digit'}).format(d);}
   function initToday(){
@@ -189,5 +277,5 @@
     });
     window.tripPickText=pickText;  // 便于在浏览器控制台里查看将要复制的文字
   }
-  document.addEventListener('DOMContentLoaded',function(){initMaps();initToday();initFold();initPick();tick();setInterval(tick,30000);});
+  document.addEventListener('DOMContentLoaded',function(){initMaps();initLightbox();initTimeline();initToday();initFold();initPick();tick();setInterval(tick,30000);});
 })();

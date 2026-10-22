@@ -2,8 +2,17 @@
 
 check.py 与 build_site.py 都从这里读；读到不合格式的地方记进 problems（文件、行号、说明），不抛异常，
 让检查能一次报全、网站也尽量照常生成。
+
+也是查询工具（网站与 agent 共用同一组函数）：
+  python3 tools/tripdata.py near <地点id 或 纬度,经度> [--km 5] [--kind 美食]   # 附近的地点（≤2.5 km 步行可达）
+  python3 tools/tripdata.py find <词> [<词> …]                                  # 搜 name、name_local、reason、notes
+  python3 tools/tripdata.py day <MM-DD>                                         # 按时间轴打印一天（没有时间轴就打印推荐的一套）
 """
+import argparse
+import math
 import re
+import sys
+import unicodedata
 from datetime import date
 from pathlib import Path
 
@@ -23,6 +32,23 @@ TRAIL_REQUIRED = ["difficulty", "length_km", "source"]
 TRAIL_TEXT = ["time", "scenery", "autumn", "source"]  # 一句文字，不换行
 TRAIL_KEYS = ["difficulty", "length_km", "ascent_m", "time", "type", "rating", "reviews", "url", "scenery", "autumn", "source"]
 TAKEN = re.compile(r"^\d{4}(?:-\d{2}-\d{2})?$")
+# 第三轮新字段（docs/格式.md 第 1、2 节）：票价、评分、优惠、一天的时间轴
+PRICE_KEYS = ["adult", "student", "youth", "combo", "note", "source", "checked"]
+PRICE_REQUIRED = ["adult", "source", "checked"]
+RATING_KEYS = ["score", "reviews", "source", "checked"]
+OFFER_SCOPES = ["全程", "布达佩斯", "维也纳", "湖区", "城际交通"]
+OFFER_KINDS = ["证件", "交通票", "城市卡", "联票", "折扣", "买票技巧"]
+OFFER_FOR_BASE = ["4 人", "队友"]   # 再加地点库里 who 出现过的人名（人名不写进代码：代码会原样发布到公开站）
+OFFER_VERDICTS = ["推荐", "看情况", "不划算", "已有"]
+OFFER_REQUIRED = ["id", "name", "scope", "kind", "what", "saves", "for", "verdict", "why", "price", "how", "source", "checked"]
+PLAN_TYPES = ["玩", "路上", "吃", "机动", "硬节点", "预留"]
+PLAN_SURE = ["定", "估", "不定"]
+PLAN_WHO_BASE = ["全组", "队友"]    # 同上，再加地点库里 who 出现过的人名
+PLAN_MAX = 3
+WALK_KM = 2.5          # ≤ 这个距离算步行可达
+NEAR_KM = 5.0          # 地图上标出的“附近”半径
+EAT_KM = 1.5           # 时间轴“吃”块的“附近还有”半径
+SKIP_NEAR = {"住宿", "交通"}   # 附近查询默认不含
 DAY_REQUIRED = ["date", "title", "area", "pace"]
 REF = re.compile(r"\[\[([^\]\n]+)\]\]")
 ID = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
@@ -105,6 +131,9 @@ def load_places(root, problems):
             p["coords"] = None
         _check_pick_fields(p, pid, ln, problems)
         _check_trail(p, pid, ln, problems)
+        _check_price(p, pid, ln, problems)
+        _check_rating(p, pid, ln, problems)
+        _check_offer_list(p, pid, ln, problems)
         if pid:
             places[pid] = p
     return places
@@ -220,6 +249,113 @@ def _check_taken(img, pid, ln, problems):
     img["taken"] = s
 
 
+def _text_field(t, k, where, ln, problems, path="data/places.yaml"):
+    """t[k] 要是一句文字（不换行）；写错的报出来并去掉，换行的压成一行。返回字段现在是否有效。"""
+    v = t.get(k)
+    if v is None:
+        return False
+    if isinstance(v, date):
+        t[k] = v.isoformat()
+        return True
+    if not isinstance(v, str) or not v.strip():
+        problems.add(path, ln, f"{where} 的 {k} 要写成一句文字，现在是 “{v}”")
+        t.pop(k)
+        return False
+    if "\n" in v.strip():
+        problems.add(path, ln, f"{where} 的 {k} 只写一句，不换行")
+    t[k] = " ".join(v.split())
+    return True
+
+
+def _check_price(p, pid, ln, problems):
+    """可选的 price 小节（门票或票价）：写错的字段报出来并去掉；整节不是键值对就整节当作没写。"""
+    t = p.get("price")
+    if t is None:
+        return
+    where = f"{pid} 的 price"
+    if not isinstance(t, dict):
+        problems.add("data/places.yaml", ln, f"{where} 要写成键值对小节（adult、student 等，见格式页第 1 节）")
+        p["price"] = None
+        return
+    for k in list(t):
+        if k not in PRICE_KEYS:
+            problems.add("data/places.yaml", ln, f"{where} 里的 {k} 不是格式页的字段（{'、'.join(PRICE_KEYS)}）")
+            t.pop(k)
+    for k in PRICE_KEYS:
+        _text_field(t, k, where, ln, problems)
+    for k in PRICE_REQUIRED:
+        if t.get(k) in (None, ""):
+            problems.add("data/places.yaml", ln, f"{where} 缺必填字段 {k}")
+
+
+def _check_rating(p, pid, ln, problems):
+    """可选的 rating 小节（第三方评分）：写错的字段报出来并去掉；缺 score 或 source 就整节当作没写。"""
+    t = p.get("rating")
+    if t is None:
+        return
+    where = f"{pid} 的 rating"
+    if not isinstance(t, dict):
+        problems.add("data/places.yaml", ln, f"{where} 要写成键值对小节（score、reviews、source、checked）")
+        p["rating"] = None
+        return
+    for k in list(t):
+        if k not in RATING_KEYS:
+            problems.add("data/places.yaml", ln, f"{where} 里的 {k} 不是格式页的字段（{'、'.join(RATING_KEYS)}）")
+            t.pop(k)
+    v = t.get("score")
+    if v is not None and not (_num(v) and 0 <= v <= 5):
+        problems.add("data/places.yaml", ln, f"{where} 的 score 要写成 0—5 的数，现在是 “{v}”")
+        t.pop("score")
+    v = t.get("reviews")
+    if v is not None and not (isinstance(v, int) and not isinstance(v, bool) and v >= 0):
+        problems.add("data/places.yaml", ln, f"{where} 的 reviews 要写成 0 或正整数（评价条数），现在是 “{v}”")
+        t.pop("reviews")
+    for k in ("source", "checked"):
+        _text_field(t, k, where, ln, problems)
+    for k in ("score", "source"):
+        if t.get(k) in (None, ""):
+            problems.add("data/places.yaml", ln, f"{where} 缺必填字段 {k}；整个 rating 当作没写")
+            p["rating"] = None
+            return
+
+
+def _check_offer_list(p, pid, ln, problems):
+    """地点的 offers：id 列表（写法在这里查；id 在 offers.yaml 里是否存在由 load_all 查）。"""
+    v = p.get("offers")
+    if v is None:
+        return
+    if not isinstance(v, list) or not all(isinstance(x, str) and ID.match(x) for x in v):
+        problems.add("data/places.yaml", ln, f"{pid} 的 offers 要写成 id 列表（小写字母、数字、连字符），引用 data/offers.yaml")
+        p["offers"] = None
+
+
+def _check_more(img, pid, ln, root, problems):
+    """图片的可选 more：[{file, author, license, source_page, …}]（每项同主图字段）；写错的项报出来并去掉。"""
+    v = img.get("more")
+    if v is None:
+        return
+    if not isinstance(v, list):
+        problems.add("data/images.yaml", ln, f"{pid} 的 more 要写成列表，每项同主图字段")
+        img.pop("more")
+        return
+    keep = []
+    for i, m in enumerate(v, 1):
+        where = f"{pid} 的 more 第 {i} 项"
+        if not isinstance(m, dict) or not m.get("file"):
+            problems.add("data/images.yaml", ln, f"{where} 要有 file（键值对）")
+            continue
+        miss = [k for k in ("author", "license", "source_page") if not m.get(k)]
+        if miss:
+            problems.add("data/images.yaml", ln, f"{where} 缺 {'、'.join(miss)}（署名与许可要写全）")
+            continue
+        if not (root / m["file"]).exists():
+            problems.add("data/images.yaml", ln, f"{where} 的图片文件 {m['file']} 不存在")
+            continue
+        _check_taken(m, f"{pid} more[{i}]", ln, problems)
+        keep.append(m)
+    img["more"] = keep
+
+
 def load_images(root, problems, places):
     path = root / "data" / "images.yaml"
     if not path.exists():
@@ -238,6 +374,7 @@ def load_images(root, problems, places):
             problems.add("data/images.yaml", lines.get(pid, 0), f"{pid} 的图片文件 {img['file']} 不存在")
         if isinstance(img, dict):
             _check_taken(img, pid, lines.get(pid, 0), problems)
+            _check_more(img, pid, lines.get(pid, 0), root, problems)
     return data
 
 
@@ -265,7 +402,7 @@ def load_day(root, path, problems):
     text = Path(path).read_text(encoding="utf-8")
     fm, body, offset = _front_matter(text)
     day = {"file": str(rel), "slug": "day-" + Path(path).stem, "meta": {}, "sections": {}, "order": [],
-           "slots": [], "refs": [], "recommended": []}
+           "slots": [], "refs": [], "recommended": [], "plans": []}
     if fm is None:
         problems.add(rel, 1, "缺 YAML 头（--- … ---）")
     else:
@@ -412,19 +549,470 @@ def load_decisions(root, problems):
     return out
 
 
+def people(places):
+    """地点库 who 字段里出现过的人名（“都行”不算）；时间轴的轨道、优惠的适用人群可以用这些名字。"""
+    return sorted({p["who"] for p in places.values() if isinstance(p.get("who"), str) and p["who"] != "都行"} - set(PLAN_WHO_BASE))
+
+
+def load_offers(root, problems, places=None):
+    """data/offers.yaml（优惠与车票）→ 列表。文件不存在是正常的（还没整理），返回空列表、不报错。"""
+    path = root / "data" / "offers.yaml"
+    if not path.exists():
+        return []
+    text = path.read_text(encoding="utf-8")
+    try:
+        data = _load(text) or []
+    except yaml.YAMLError as e:
+        mark = getattr(e, "problem_mark", None)
+        problems.add("data/offers.yaml", mark.line + 1 if mark else 0, f"YAML 读不了：{getattr(e, 'problem', e)}")
+        return []
+    if not isinstance(data, list):
+        problems.add("data/offers.yaml", 1, "顶层要是列表（每条优惠一条“- id: …”）")
+        return []
+    starts = [text[:m.start()].count("\n") + 1 for m in re.finditer(r"^- id:", text, re.M)]
+    out, seen = [], {}
+    enums = {"scope": OFFER_SCOPES, "kind": OFFER_KINDS, "for": OFFER_FOR_BASE + people(places or {}), "verdict": OFFER_VERDICTS}
+    for i, o in enumerate(data):
+        if not isinstance(o, dict):
+            problems.add("data/offers.yaml", 0, f"第 {i + 1} 条不是键值对")
+            continue
+        oid = str(o.get("id", ""))
+        ln = starts[i] if len(starts) == len(data) else 0
+        o["_line"] = ln
+        where = f"优惠 {oid or '（无 id）'}"
+        if not oid or not ID.match(oid):
+            problems.add("data/offers.yaml", ln, f"{where} 的 id 只能用小写字母、数字、连字符")
+            if not oid:
+                continue
+        if oid in seen:
+            problems.add("data/offers.yaml", ln, f"id “{oid}” 重复（第一次在第 {seen[oid]} 行）")
+            continue
+        seen[oid] = ln
+        for k in ("name", "what", "saves", "why", "price", "how", "source", "checked"):
+            _text_field(o, k, where, ln, problems, "data/offers.yaml")
+        for k, allowed in enums.items():
+            v = o.get(k)
+            if v is not None and v not in allowed:
+                problems.add("data/offers.yaml", ln, f"{where} 的 {k} “{v}” 不是 {' | '.join(allowed)}")
+                o.pop(k)
+        for k in OFFER_REQUIRED:
+            if o.get(k) in (None, ""):
+                problems.add("data/offers.yaml", ln, f"{where} 缺必填字段 {k}")
+        for k in ("places", "links"):
+            v = o.get(k)
+            if v is not None and not (isinstance(v, list) and all(isinstance(x, str) and x.strip() for x in v)):
+                problems.add("data/offers.yaml", ln, f"{where} 的 {k} 要写成列表（每项一个{'地点 id' if k == 'places' else '网址'}）")
+                o.pop(k)
+        if isinstance(o.get("links"), list):
+            good = [x.strip() for x in o["links"] if re.match(r"^https?://\S+$", x.strip())]
+            if len(good) != len(o["links"]):
+                problems.add("data/offers.yaml", ln, f"{where} 的 links 里有不是 http(s):// 开头的网址")
+            o["links"] = good
+        out.append(o)
+    return out
+
+
+def _mins(s):
+    """"07:35" → 455；不合格式返回 None（小时 0—29，允许跨过午夜写 24:30）。"""
+    m = re.match(r"^(\d{1,2}):(\d{2})$", str(s).strip())
+    if not m or int(m.group(1)) > 29 or int(m.group(2)) > 59:
+        return None
+    return int(m.group(1)) * 60 + int(m.group(2))
+
+
+def hhmm(n):
+    return f"{n // 60:02d}:{n % 60:02d}"
+
+
+def _plan_block(b, where, rel, places, problems):
+    """一个时间块 → 规范的 dict；写错的报出来：缺时刻、取值错的整块去掉，地点 id 不存在的只去掉那个 id。"""
+    if not isinstance(b, dict):
+        problems.add(rel, 1, f"{where} 要写成键值对（from、to、type 等）")
+        return None
+    f = _mins(b.get("from", ""))
+    if f is None:
+        problems.add(rel, 1, f"{where} 的 from 要写成 HH:MM（0—29 点），现在是 “{b.get('from')}”")
+        return None
+    t = None
+    if b.get("to") is not None:
+        t = _mins(b["to"])
+        if t is None:
+            problems.add(rel, 1, f"{where} 的 to 要写成 HH:MM（0—29 点），现在是 “{b['to']}”")
+            return None
+        if t <= f:
+            problems.add(rel, 1, f"{where} 的 to {b['to']} 不晚于 from {b['from']}")
+            return None
+    typ = b.get("type")
+    if typ not in PLAN_TYPES:
+        problems.add(rel, 1, f"{where} 的 type “{typ}” 不是 {' | '.join(PLAN_TYPES)}")
+        return None
+    if t is None and typ != "硬节点":
+        problems.add(rel, 1, f"{where} 缺 to（只有“硬节点”可以只写 from）")
+        return None
+    sure = b.get("sure")
+    if sure is not None and sure not in PLAN_SURE:
+        problems.add(rel, 1, f"{where} 的 sure “{sure}” 不是 {' | '.join(PLAN_SURE)}")
+        sure = None
+    elif sure is None:
+        problems.add(rel, 1, f"{where} 缺 sure（{' | '.join(PLAN_SURE)}）；网站先显示成“未标”")
+    out = {"from": hhmm(f), "to": hhmm(t) if t is not None else None, "f": f, "t": t, "type": typ, "sure": sure,
+           "place": None, "options": [], "text": "", "mode": "", "src": "", "note": ""}
+    for k in ("text", "mode", "src", "note"):
+        v = b.get(k)
+        if v is None:
+            continue
+        if isinstance(v, str) and v.strip():
+            out[k] = " ".join(v.split())
+        else:
+            problems.add(rel, 1, f"{where} 的 {k} 要写成一句文字，现在是 “{v}”")
+    pid = b.get("place")
+    if pid is not None:
+        if not isinstance(pid, str) or pid not in places:
+            problems.add(rel, 1, f"{where} 的 place “{pid}” 不在地点库里")
+        else:
+            out["place"] = pid
+    opts = b.get("options")
+    if opts is not None:
+        if not isinstance(opts, list):
+            problems.add(rel, 1, f"{where} 的 options 要写成 id 列表")
+        else:
+            for o in opts:
+                if isinstance(o, str) and o in places:
+                    if o not in out["options"]:
+                        out["options"].append(o)
+                else:
+                    problems.add(rel, 1, f"{where} 的 options 里 “{o}” 不在地点库里")
+    if not (out["place"] or out["options"] or out["text"]):
+        problems.add(rel, 1, f"{where} 要有 place、options 或 text 之一（写这个块是什么）")
+        return None
+    return out
+
+
+def _plans(day, places, problems):
+    """天页头的 plans → 规范的列表；写错的报出来并去掉那一块（整个 plans 不是列表就全当没写，页面回到“推荐的一套”）。"""
+    rel, raw = day["file"], day["meta"].get("plans")
+    if raw is None:
+        return []
+    who_ok = PLAN_WHO_BASE[:1] + people(places) + PLAN_WHO_BASE[1:]
+    if not isinstance(raw, list) or not raw or not all(isinstance(x, dict) for x in raw):
+        problems.add(rel, 1, "plans 要写成方案列表（每套有 name、tracks）；这天先按没有时间轴显示")
+        return []
+    plans = []
+    for i, pl in enumerate(raw, 1):
+        if len(plans) >= PLAN_MAX:
+            problems.add(rel, 1, f"plans 最多 {PLAN_MAX} 套，第 {i} 套起不显示")
+            break
+        name = pl.get("name")
+        if not isinstance(name, str) or not name.strip():
+            problems.add(rel, 1, f"plans 第 {i} 套缺 name")
+            continue
+        note = pl.get("note")
+        tracks = []
+        if not isinstance(pl.get("tracks"), list) or not pl["tracks"]:
+            problems.add(rel, 1, f"方案“{name}”缺 tracks（一条轨道一个人群）")
+            continue
+        for j, tr in enumerate(pl["tracks"], 1):
+            if not isinstance(tr, dict) or tr.get("who") not in who_ok or not isinstance(tr.get("blocks"), list):
+                problems.add(rel, 1, f"方案“{name}”第 {j} 条轨道要有 who（{' | '.join(who_ok)}）和 blocks 列表")
+                continue
+            blocks = []
+            for k, b in enumerate(tr["blocks"], 1):
+                nb = _plan_block(b, f"方案“{name}”{tr['who']}轨第 {k} 块", rel, places, problems)
+                if nb:
+                    blocks.append(nb)
+            blocks.sort(key=lambda b: (b["f"], b["t"] if b["t"] is not None else b["f"]))
+            end, last = -1, None
+            for b in blocks:
+                if b["f"] < end:
+                    problems.add(rel, 1, f"方案“{name}”{tr['who']}轨：{b['from']} 的块和前一块（{last['from']}–{last['to'] or '点'}）重叠，同一轨道的块不能重叠")
+                e = b["t"] if b["t"] is not None else b["f"]
+                if e >= end:
+                    end, last = e, b
+            if blocks:
+                tracks.append({"who": tr["who"], "blocks": blocks})
+        if tracks:
+            plans.append({"name": name.strip(), "note": " ".join(note.split()) if isinstance(note, str) else "", "tracks": tracks})
+    return plans
+
+
+def plan_places(plans, first_only=False):
+    """时间轴里出现的地点 id（place 与 options），按出现顺序；first_only 只看第一套的 place。"""
+    out = []
+    for pl in plans[:1] if first_only else plans:
+        for tr in pl["tracks"]:
+            for b in tr["blocks"]:
+                for pid in ([b["place"]] if b["place"] else []) + ([] if first_only else b["options"]):
+                    if pid not in out:
+                        out.append(pid)
+    return out
+
+
 def load_all(root):
     root = Path(root)
     problems = Problems()
     places = load_places(root, problems)
-    data = {"root": root, "places": places, "images": load_images(root, problems, places),
+    offers = load_offers(root, problems, places)
+    data = {"root": root, "places": places, "images": load_images(root, problems, places), "offers": offers,
             "days": load_days(root, problems), "todo": load_todo(root, problems),
             "decisions": load_decisions(root, problems)}
+    offer_ids = {o["id"] for o in offers}
+    for pid, p in places.items():
+        if p.get("offers") and offers is not None:
+            bad = [x for x in p["offers"] if x not in offer_ids]
+            for x in bad:
+                problems.add("data/places.yaml", p.get("_line", 0), f"{pid} 的 offers 里 “{x}” 不在 data/offers.yaml 里")
+            p["offers"] = [x for x in p["offers"] if x in offer_ids]
+    for o in offers:
+        if o.get("places"):
+            for x in o["places"]:
+                if x not in places:
+                    problems.add("data/offers.yaml", o["_line"], f"优惠 {o['id']} 的 places 里 “{x}” 不在地点库里")
+            o["places"] = [x for x in o["places"] if x in places]
     for d in data["days"]:
         for ref, ln in d["refs"]:
             if ref not in places:
                 problems.add(d["file"], ln, f"[[{ref}]] 不在地点库里")
+        d["plans"] = _plans(d, places, problems)
+        if d["plans"]:
+            # 时间轴里的地点也算这天提到的：地图上标出、地区页的“排进哪一天”会带上；第一套的 place 算“推荐”
+            for pid in plan_places(d["plans"]):
+                d["refs"].append((pid, 0))
+            for pid in plan_places(d["plans"], first_only=True):
+                if pid not in d["recommended"]:
+                    d["recommended"].append(pid)
     return data, problems
 
 
 def weekday(d):
     return "周" + WEEK[d.weekday()]
+
+
+# ===================== 查询：附近、搜索、按时间轴看一天 =====================
+# 网站生成（build_site.py）与命令行共用这几个函数；以后做 MCP，把它们原样包成工具。
+
+_DEFAULT = {}
+
+
+def default_root():
+    return Path(__file__).resolve().parent.parent
+
+
+def _all(root=None):
+    """默认读本仓的数据（读一次，缓存）；有问题照常返回，不抛异常。"""
+    key = str(root or default_root())
+    if key not in _DEFAULT:
+        _DEFAULT[key] = load_all(Path(key))
+    return _DEFAULT[key][0]
+
+
+def dist_km(lat1, lon1, lat2, lon2):
+    """两点的球面距离（公里）。"""
+    p1, p2 = math.radians(lat1), math.radians(lat2)
+    a = math.sin((p2 - p1) / 2) ** 2 + math.cos(p1) * math.cos(p2) * math.sin(math.radians(lon2 - lon1) / 2) ** 2
+    return 6371.0088 * 2 * math.asin(math.sqrt(a))
+
+
+def near(lat, lon, km=NEAR_KM, places=None, kinds=None, exclude=()):
+    """库里坐标在 km 公里内的地点，按距离从近到远。
+
+    返回 [{"id","name","kind","km","walk","place"}]；walk 表示 ≤2.5 km（步行可达）。
+    默认不含住宿、交通；kinds（集合）给了就只要这些类别（这时住宿、交通也可以点名要）。
+    places 不给就读本仓的地点库。
+    """
+    places = places if places is not None else _all()["places"]
+    out = []
+    for pid, p in places.items():
+        c = p.get("coords")
+        if not c or pid in exclude:
+            continue
+        k = p.get("kind")
+        if kinds:
+            if k not in kinds:
+                continue
+        elif k in SKIP_NEAR:
+            continue
+        d = dist_km(lat, lon, c[0], c[1])
+        if d <= km:
+            out.append({"id": pid, "name": p.get("name", pid), "kind": k, "km": round(d, 2), "walk": d <= WALK_KM, "place": p})
+    out.sort(key=lambda x: (x["km"], x["id"]))
+    return out
+
+
+def _fold(s):
+    """搜索用：小写、去重音（Schönbrunn ≈ schonbrunn）。"""
+    return "".join(c for c in unicodedata.normalize("NFKD", str(s).casefold()) if not unicodedata.combining(c))
+
+
+def find(term, places=None, fields=("name", "name_local", "reason", "notes")):
+    """搜地点库：词用空格分开，每个词都要在 name、name_local、reason、notes（或 id）里出现。
+
+    返回 [{"id","name","kind","where":[命中的字段],"place"}]，名字命中的排前面。
+    """
+    places = places if places is not None else _all()["places"]
+    words = [_fold(w) for w in str(term).split() if w.strip()]
+    if not words:
+        return []
+    out = []
+    for pid, p in places.items():
+        texts = {f: _fold(p.get(f) or "") for f in (*fields, "id")}
+        texts["id"] = _fold(pid)
+        if all(any(w in t for t in texts.values()) for w in words):
+            hit = [f for f in (*fields, "id") if any(w in texts[f] for w in words)]
+            out.append({"id": pid, "name": p.get("name", pid), "kind": p.get("kind"), "where": hit, "place": p})
+    out.sort(key=lambda x: (not ("name" in x["where"] or "name_local" in x["where"]), x["id"]))
+    return out
+
+
+def source_label(p):
+    """地点的“来源标签”（餐馆尤其用）：有资料的写“N 篇攻略提到”；按 Google 地图评分推荐的写评分并标明资料里没有。"""
+    r = p.get("rating") if isinstance(p.get("rating"), dict) else None
+    notes = p.get("heat") or len(p.get("sources") or [])
+    rate = ""
+    if r:
+        rate = f"{r.get('source') or '评分'} {r['score']:g}"
+        if r.get("reviews") is not None:
+            rate += f"（{r['reviews']:,} 条）"
+    if not p.get("sources") and r and "google" in (r.get("source") or "").lower():
+        return f"{rate} · 推荐的就餐点（资料里没有）"
+    if notes:
+        return f"{notes} 篇攻略提到" + (f" · {rate}" if rate else "")
+    if rate:
+        return rate
+    return "资料里没有评分"
+
+
+def nearby_food(places, track_blocks, idx, km=EAT_KM, limit=3):
+    """时间轴“吃”块（track_blocks[idx]）的“附近还有”：库里 kind 美食、离前后“玩”块地点 km 内、不在 options 里的，
+    按距离从近到远，最多 limit 个。返回 [{"id","name","km","from_id","from_name","place"}]。"""
+    b = track_blocks[idx]
+    anchors = []
+    for rng in (range(idx - 1, -1, -1), range(idx + 1, len(track_blocks))):
+        for j in rng:
+            o = track_blocks[j]
+            if o["type"] == "玩" and o["place"] and places.get(o["place"], {}).get("coords"):
+                anchors.append(o["place"])
+                break
+    skip = set(b["options"]) | set(anchors)
+    best = {}
+    for aid in anchors:
+        c = places[aid]["coords"]
+        for n in near(c[0], c[1], km, places, kinds={"美食"}, exclude=skip):
+            if n["id"] not in best or n["km"] < best[n["id"]]["km"]:
+                best[n["id"]] = {**n, "from_id": aid, "from_name": places[aid].get("name", aid)}
+    return sorted(best.values(), key=lambda x: (x["km"], x["id"]))[:limit]
+
+
+def day_by_date(data, mmdd):
+    """“10-26” → 天页（找不到返回 None）。"""
+    for d in data["days"]:
+        if Path(d["file"]).stem == mmdd:
+            return d
+    return None
+
+
+def _fmt_dur(m):
+    return f"{m // 60} h {m % 60:02d}" if m >= 60 and m % 60 else (f"{m // 60} h" if m >= 60 else f"{m} 分")
+
+
+def block_title(b, places):
+    """时间块的一句话：地点名、吃饭的备选名或 text。"""
+    if b["type"] == "吃" and b["options"]:
+        names = "、".join(places[o]["name"] for o in b["options"])
+        return (b["text"] + "：" if b["text"] else "吃：") + names
+    if b["place"]:
+        return places[b["place"]]["name"] + (f"（{b['text']}）" if b["text"] else "")
+    return b["text"]
+
+
+def day_text(data, d):
+    """一天按时间轴打印成文字（命令行 day 用）；没有时间轴就打印推荐的一套。"""
+    places = data["places"]
+    m = d["meta"]
+    lines = [f"{m['date']:%m-%d} {weekday(m['date'])}｜{m.get('title', '')}｜{m.get('area', '')}｜节奏 {m.get('pace', '')}" + (f"｜住 {m['base']}" if m.get("base") else "")]
+    lead = d["sections"].get("一句话", {}).get("text")
+    if lead:
+        lines.append(lead)
+    for a in m.get("anchors") or []:
+        lines.append(f"  硬节点 {a['time']} {a['text']}")
+    if not d["plans"]:
+        lines.append("（这天没有时间轴 plans，下面是“推荐的一套”）")
+        lines.append(d["sections"].get("推荐的一套", {}).get("text") or "（也没有推荐的一套）")
+        return "\n".join(lines)
+    for i, pl in enumerate(d["plans"], 1):
+        lines.append("")
+        lines.append(f"== 第 {i} 套：{pl['name']}" + (f" — {pl['note']}" if pl["note"] else ""))
+        for tr in pl["tracks"]:
+            tot = {}
+            lines.append(f"  [{tr['who']}]")
+            for k, b in enumerate(tr["blocks"]):
+                span = f"{b['from']}–{b['to']}" if b["to"] else f"{b['from']}  "
+                dur = f"（{_fmt_dur(b['t'] - b['f'])}）" if b["t"] is not None else ""
+                head = f"    {span} {b['type']}·{b['sure'] or '未标'} {block_title(b, places)}"
+                if b["mode"]:
+                    head += f"｜{b['mode']}"
+                lines.append(head + dur + (f"｜{b['note']}" if b["note"] else "") + (f"｜出处：{b['src']}" if b["src"] else ""))
+                if b["t"] is not None:
+                    tot[b["type"]] = tot.get(b["type"], 0) + b["t"] - b["f"]
+                if b["type"] == "吃":
+                    for o in b["options"]:
+                        lines.append(f"        备选 {places[o]['name']} [{o}] — {source_label(places[o])}")
+                    for n in nearby_food(places, tr["blocks"], k):
+                        lines.append(f"        附近还有 {n['name']} [{n['id']}] 距{n['from_name']} {n['km']:.2f} km — {source_label(n['place'])}")
+            if tot:
+                lines.append("    占用：" + "，".join(f"{t} {_fmt_dur(tot[t])}" for t in PLAN_TYPES if t in tot))
+    return "\n".join(lines)
+
+
+def _center(arg, places):
+    """地点 id 或 “纬度,经度” → (lat, lon, 排除的 id)；解析不了返回 None。"""
+    if arg in places and places[arg].get("coords"):
+        c = places[arg]["coords"]
+        return c[0], c[1], {arg}
+    m = re.match(r"^\s*(-?\d+(?:\.\d+)?)\s*[,，]\s*(-?\d+(?:\.\d+)?)\s*$", arg)
+    if m:
+        return float(m.group(1)), float(m.group(2)), set()
+    return None
+
+
+def main(argv=None):
+    ap = argparse.ArgumentParser(description="查行程数据：附近的地点、搜地点、按时间轴看一天（读本仓的 data/ 与 trip/）")
+    ap.add_argument("--root", default=str(default_root()), help="行程仓根目录（默认本仓）")
+    sub = ap.add_subparsers(dest="cmd", required=True)
+    pn = sub.add_parser("near", help="某个地点或坐标附近的地点（默认 5 km 内，不含住宿、交通）")
+    pn.add_argument("where", help="地点 id，或 纬度,经度")
+    pn.add_argument("--km", type=float, default=NEAR_KM)
+    pn.add_argument("--kind", action="append", help="只要这个类别（可重复），如 美食")
+    pf = sub.add_parser("find", help="搜 name、name_local、reason、notes；多个词都要出现")
+    pf.add_argument("words", nargs="+")
+    pd = sub.add_parser("day", help="按时间轴打印一天；没有时间轴就打印推荐的一套")
+    pd.add_argument("date", help="MM-DD，如 10-26")
+    a = ap.parse_args(argv)
+    data, problems = load_all(Path(a.root).resolve())
+    places = data["places"]
+    if a.cmd == "near":
+        c = _center(a.where, places)
+        if not c:
+            print(f"错误：“{a.where}” 不是有坐标的地点 id，也不是 纬度,经度", file=sys.stderr)
+            return 2
+        res = near(c[0], c[1], a.km, places, set(a.kind) if a.kind else None, c[2])
+        for r in res:
+            walk = "步行可达" if r["walk"] else "要坐车"
+            print(f"{r['km']:5.2f} km  {walk}  {r['kind'] or '':<4} {r['name']} [{r['id']}]  {source_label(r['place'])}")
+        print(f"（{a.where} 周围 {a.km:g} km 内共 {len(res)} 个" + (f"，类别：{'、'.join(a.kind)}" if a.kind else "，不含住宿、交通") + "）")
+        return 0
+    if a.cmd == "find":
+        res = find(" ".join(a.words), places)
+        for r in res:
+            print(f"{r['kind'] or '':<4} {r['name']} [{r['id']}]  命中：{'、'.join(r['where'])}")
+        print(f"（共 {len(res)} 个）")
+        return 0
+    d = day_by_date(data, a.date)
+    if not d:
+        print(f"错误：没有 {a.date} 的天页（有：{'、'.join(Path(x['file']).stem for x in data['days'])}）", file=sys.stderr)
+        return 2
+    print(day_text(data, d))
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

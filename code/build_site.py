@@ -3,8 +3,9 @@
   python3 tools/build_site.py                    # 输出到 _site/
   python3 tools/build_site.py --root DIR --out DIR
 
-页面：首页（今天与明天、要提前做的、待你定、每天入口）、每天一页、三个地区页、“选地方”页（pick.html：每个地方标想去、
-不去或不标，想去的选想哪天，复制成一段文字给 agent）、决定页、图片来源页、code/（工具代码与 MIT 许可）。
+页面：首页（今天与明天、要提前做的、待你定、每天入口）、每天一页（头里有 plans: 就画时间轴；天页地图可标出 5 km 内
+库里其他地点）、三个地区页、“选地方”页（pick.html：每个地方标想去、不去或不标，想去的选想哪天，复制成一段文字给 agent）、
+“票价与优惠”页（offers.html，读 data/offers.yaml）、决定页、图片来源页、code/（工具代码与 MIT 许可）。
 名单里带“=>”的词先替换（如名字显示成“本人”），邮箱打码；扫描仍发现名单词、邮箱、订单号样式就以 1 退出，不能发布。
 数据不合格式时照常生成能生成的部分；格式问题用 check.py 查。依赖：jinja2、pyyaml、markdown（见 requirements.txt）。
 """
@@ -39,6 +40,17 @@ PICK_KINDS = ["徒步", "景点", "小镇", "美食", "抱石", "观景", "购�
 PICK_DATES = {"布达佩斯": ["2026-10-25", "2026-10-26"],
               "维也纳": ["2026-10-27", "2026-10-30", "2026-10-31"],
               "湖区": ["2026-10-27", "2026-10-28", "2026-10-29", "2026-10-30", "2026-10-31"]}
+
+
+# 时间轴：每分钟占多少像素；块的类型 → 样式名；把握 → 样式名与说明
+TL_PX = 1.1
+TL_COL = 160       # 每列最窄（手机上多列时靠横向滑动）
+TL_COL_MAX = 340   # 每列最宽（桌面上列少时不拉成一大片）
+TL_TYPE = {"玩": "play", "路上": "move", "吃": "eat", "机动": "flex", "硬节点": "hard", "预留": "hold"}
+TL_SURE = {"定": ("fix", "定：时刻表上有的，或已订的"), "估": ("est", "估：估的停留或步行时间"),
+           "不定": ("unk", "不定：还不知道，先留着位置")}
+OFFER_VERDICT_CLS = {"推荐": "v-rec", "看情况": "v-maybe", "不划算": "v-no", "已有": "v-have"}
+OFFER_VERDICT_ORDER = {v: i for i, v in enumerate(["推荐", "看情况", "已有", "不划算"])}
 
 
 def pickable(p):
@@ -79,6 +91,46 @@ def trail_view(t):
             "url": url, "link_label": f"去 {site} 看图与评价"}
 
 
+def price_view(p):
+    """地点的 price 小节 → 卡片要显示的内容。line：“成人 €22 ｜ 学生 €17”（没有学生价就只写成人）；rows：收进“详情”的几行。"""
+    t = p.get("price") if isinstance(p, dict) else None
+    if not isinstance(t, dict) or not t.get("adult"):
+        return None
+    line = f"成人 {t['adult']}"
+    stu = (t.get("student") or "").strip()
+    if stu and "无学生价" not in stu:
+        line += f" ｜ 学生 {stu}"
+    rows = []
+    if t.get("youth"):
+        rows.append(("青年票", t["youth"]))
+    if t.get("combo"):
+        rows.append(("联票", t["combo"]))
+    if stu and "无学生价" in stu:
+        rows.append(("学生票", stu))
+    if t.get("note"):
+        rows.append(("说明", t["note"]))
+    src = "；".join(x for x in [t.get("source"), f"核对 {t['checked']}" if t.get("checked") else None] if x)
+    if src:
+        rows.append(("票价出处", src))
+    return {"line": line, "rows": rows}
+
+
+def rating_view(p):
+    """地点的 rating 小节 → “Google 地图 4.6（2,300 条）”；rec 表示这是没有资料、按评分推荐的就餐点。"""
+    r = p.get("rating") if isinstance(p, dict) else None
+    if not isinstance(r, dict) or r.get("score") is None:
+        return None
+    text = f"{r.get('source') or '评分'} {_n(r['score'])}"
+    if r.get("reviews") is not None:
+        text += f"（{_n(r['reviews'])} 条）"
+    google = "google" in (r.get("source") or "").lower()
+    return {"text": text, "checked": r.get("checked") or "", "rec": bool(google and not p.get("sources"))}
+
+
+def _dur(m):
+    return f"{m // 60} h {m % 60:02d}" if m >= 60 and m % 60 else (f"{m // 60} h" if m >= 60 else f"{m} 分")
+
+
 class Site:
     def __init__(self, root, out):
         self.root, self.out = Path(root), Path(out)
@@ -92,8 +144,23 @@ class Site:
         self.policy = privacy.load(self.root / "config" / "privacy.txt")
         self.env = Environment(loader=FileSystemLoader(str(self.root / "site" / "templates")), autoescape=True,
                                trim_blocks=False)
-        self.env.globals["trail"] = trail_view
+        self.env.globals.update(trail=trail_view, price=price_view, rating=rating_view, gallery=self.gallery,
+                                source_label=tripdata.source_label)
+        self.offers = self.data["offers"]
+        self.offers_by_id = {o["id"]: o for o in self.offers}
         self.cards = {}  # 天页 slug → 有卡片的地点 id
+
+    def gallery(self, pid, name):
+        """点图放大用：这个地点的图（主图加 more 里的图）→ JSON 文字 [{"src","cap"}]；没有存好的图返回空列表。"""
+        img = self.images.get(pid)
+        if not isinstance(img, dict) or not img.get("file"):
+            return "[]"
+        out = []
+        for m in [img] + [x for x in img.get("more") or [] if isinstance(x, dict)]:
+            if m.get("file"):
+                cap = " · ".join(x for x in [name, f"图：{m['author']}" if m.get("author") else "", m.get("license") or ""] if x)
+                out.append({"src": m["file"], "cap": cap})
+        return json.dumps(out, ensure_ascii=False)
 
     # ---- 文字 ----
     def link(self, pid, here=None):
@@ -137,8 +204,24 @@ class Site:
         lead = self.md(d["sections"].get("一句话", {}).get("text", ""), here, inline=True)
         return html, lead
 
-    def map_json(self, points):
-        return Markup(json.dumps({"points": points}, ensure_ascii=False).replace("</", "<\\/"))
+    def map_json(self, points, near=None):
+        return Markup(json.dumps({"points": points, "near": near or []}, ensure_ascii=False).replace("</", "<\\/"))
+
+    def day_near(self, d, pts):
+        """天页地图：库里离当天任一地点 5 km 内的其他地点（不含住宿、交通），灰点用。距离在这里算好。"""
+        mine = [pid for pid in dict.fromkeys(r for r, _ in d["refs"]) if self.places.get(pid, {}).get("coords")]
+        best = {}
+        for pid in mine:
+            c = self.places[pid]["coords"]
+            for n in tripdata.near(c[0], c[1], tripdata.NEAR_KM, self.places, exclude=set(mine)):
+                if n["id"] not in best or n["km"] < best[n["id"]]["km"]:
+                    best[n["id"]] = {**n, "from": self.places[pid]["name"]}
+        out = []
+        for n in sorted(best.values(), key=lambda x: (x["km"], x["id"])):
+            p = n["place"]
+            out.append({"lat": round(p["coords"][0], 6), "lon": round(p["coords"][1], 6), "name": p["name"], "kind": p.get("kind") or "",
+                        "km": round(n["km"], 1), "walk": n["walk"], "from": n["from"], "href": self.link(n["id"])})
+        return out
 
     def day_map(self, d):
         pts, seen = [], set()
@@ -152,6 +235,90 @@ class Site:
                         "note": "推荐的一套" if rec else "", "color": COLOR_REC if rec else COLOR_OTHER,
                         "href": f"#p-{pid}" if pid in self.cards[d["slug"]] else self.link(pid)})
         return pts
+
+
+    def timeline(self, d):
+        """天页的 plans → 画时间轴要用的数据（位置按分钟算好）。没有 plans 返回 None，天页回到“推荐的一套”。
+
+        每套方案每条轨道一列；块的 top/height 是像素。“吃”块带备选 options 与自动的“附近还有”（库里美食、离前后“玩”块 1.5 km 内，最多 3 个）。
+        """
+        plans = d.get("plans")
+        if not plans:
+            return None
+        places = self.places
+        allb = [b for pl in plans for tr in pl["tracks"] for b in tr["blocks"]]
+        lo = min(b["f"] for b in allb) // 60 * 60
+        hi = -(-max((b["t"] if b["t"] is not None else b["f"]) for b in allb) // 60) * 60
+        if hi - lo < 180:
+            hi = lo + 180
+        height = round((hi - lo) * TL_PX)
+        ruler = [{"label": f"{m // 60 % 24:02d}:00", "top": round((m - lo) * TL_PX)} for m in range(lo, hi + 1, 60)]
+        slug, ncols = d["slug"], 0
+        out = []
+        for i, pl in enumerate(plans):
+            tracks = []
+            for j, tr in enumerate(pl["tracks"]):
+                blocks, tot = [], {}
+                for k, b in enumerate(tr["blocks"]):
+                    point = b["t"] is None
+                    top = round((b["f"] - lo) * TL_PX)
+                    h = 24 if point else max(round((b["t"] - b["f"]) * TL_PX), 20)
+                    if point:
+                        top = max(top - h, 0)  # 只有时刻的节点：旗子画在这个时刻的上方，线在时刻处
+                    if not point:
+                        tot[b["type"]] = tot.get(b["type"], 0) + b["t"] - b["f"]
+                    sure_cls, sure_txt = TL_SURE.get(b["sure"], ("none", "未标把握"))
+                    v = {"id": f"tl-{i}-{j}-{k}", "top": top, "h": h, "point": point, "type": b["type"], "tcls": TL_TYPE[b["type"]],
+                         "scls": sure_cls, "sure": b["sure"] or "未标", "sure_txt": sure_txt, "from": b["from"], "to": b["to"],
+                         "time": f"{b['from']}–{b['to']}" if b["to"] else f"{b['from']} 起",
+                         "dur": _dur(b["t"] - b["f"]) if not point else "", "title": tripdata.block_title(b, places),
+                         "mode": b["mode"], "src": b["src"], "note": b["note"], "who": tr["who"], "plan": pl["name"],
+                         "place": None, "options": [], "nearby": []}
+                    if b["place"]:
+                        v["place"] = {"name": places[b["place"]]["name"], "href": self.link(b["place"], slug)}
+                    for o in b["options"]:
+                        v["options"].append({"name": places[o]["name"], "href": self.link(o, slug), "label": tripdata.source_label(places[o])})
+                    if b["type"] == "吃":
+                        for n in tripdata.nearby_food(places, tr["blocks"], k):
+                            v["nearby"].append({"name": n["name"], "href": self.link(n["id"], slug), "km": f"{n['km']:.1f}",
+                                                "from": n["from_name"], "label": tripdata.source_label(n["place"])})
+                    blocks.append(v)
+                summary = [{"type": t, "cls": TL_TYPE[t], "dur": _dur(tot[t])} for t in tripdata.PLAN_TYPES if t in tot]
+                tracks.append({"who": tr["who"], "blocks": blocks, "first": j == 0, "summary": summary})
+                ncols += 1
+            out.append({"name": pl["name"], "note": pl["note"], "tracks": tracks})
+        return {"plans": out, "ruler": ruler, "height": height, "ncols": ncols, "min_width": 46 + ncols * TL_COL, "col": TL_COL, "col_max": TL_COL_MAX, "hpx": round(60 * TL_PX, 2),
+                "types": list(TL_TYPE.items()), "sure_legend": [(k, TL_SURE[k][0], TL_SURE[k][1]) for k in tripdata.PLAN_SURE]}
+
+    def plan_brief(self, d):
+        """首页用：第一套方案每条轨道的“时刻 地点”清单（玩、吃、硬节点；路上和预留不列）。"""
+        if not d.get("plans"):
+            return []
+        out = []
+        for tr in d["plans"][0]["tracks"]:
+            items = [f"{b['from']} {tripdata.block_title(b, self.places)}" for b in tr["blocks"] if b["type"] in ("玩", "吃", "硬节点")]
+            out.append({"who": tr["who"], "items": items})
+        return out
+
+    def offers_groups(self):
+        """优惠页：按 scope 分组（全程、各地区、城际交通，其余的排后面），组内推荐的在前。"""
+        groups = {}
+        for o in self.offers:
+            groups.setdefault(o.get("scope") or "其他", []).append(o)
+        order = tripdata.OFFER_SCOPES + [k for k in groups if k not in tripdata.OFFER_SCOPES]
+        out = []
+        for sc in order:
+            if sc in groups:
+                items = sorted(groups[sc], key=lambda o: (OFFER_VERDICT_ORDER.get(o.get("verdict"), 9), o["name"] if isinstance(o.get("name"), str) else ""))
+                for o in items:
+                    o["vcls"] = OFFER_VERDICT_CLS.get(o.get("verdict"), "v-have")
+                    o["place_links"] = [{"name": self.places[x]["name"], "href": self.link(x)} for x in o.get("places") or [] if x in self.places]
+                out.append({"scope": sc, "slug": "offers-" + str(order.index(sc)), "items": items})
+        return out
+
+    def build_offers(self):
+        n_rec = sum(1 for o in self.offers if o.get("verdict") == "推荐")
+        self.page("offers.html", "offers.html", title="票价与优惠", page_id="offers", groups=self.offers_groups(), n_rec=n_rec)
 
     def usage(self, days):
         used = {}
@@ -170,6 +337,7 @@ class Site:
     def page(self, tpl, rel, **ctx):
         base = {"generated": datetime.now(TZ).strftime("%m-%d %H:%M"), "nav_days": self.days,
                 "nav_areas": self.nav_areas, "places": self.places, "images": self.images, "maps": False,
+                "offers": self.offers, "offers_by_id": self.offers_by_id,
                 "up": "../" * rel.count("/")}
         self.write(rel, self.env.get_template(tpl).render(**{**base, **ctx}))
 
@@ -189,14 +357,18 @@ class Site:
                     c["anchor"] = c["ref"] in self.places and c["ref"] not in seen
                     seen.add(c["ref"])
             d["map"] = {"points": self.day_map(d)}
-            d["map_json"] = self.map_json(d["map"]["points"])
+            d["near"] = self.day_near(d, d["map"]["points"]) if d["map"]["points"] else []
+            d["map_json"] = self.map_json(d["map"]["points"], d["near"])
+            d["tl"] = self.timeline(d)
+            d["brief"] = self.plan_brief(d)
             self.page("day.html", f"{d['slug']}.html", title=d["meta"].get("title") or d["short"], page_id=d["slug"],
                       day=d, maps=bool(d["map"]["points"]), prev=days[i - 1] if i else None,
                       next=days[i + 1] if i + 1 < len(days) else None)
         todo_open = [t for t in self.data["todo"] if t.get("状态") in ("待办", "进行中")]
         pick_n = sum(1 for p in self.places.values() if p.get("area") in AREA_SLUG and pickable(p))
         self.page("index.html", "index.html", title="首页", page_id="index", days=days, todo_open=todo_open,
-                  decisions=self.data["decisions"], pick_n=pick_n)
+                  decisions=self.data["decisions"], pick_n=pick_n,
+                  n_rec=sum(1 for o in self.offers if o.get("verdict") == "推荐"))
         used = self.usage(days)
         for name, slug in AREA_SLUG.items():
             items = [{**p, "used": used.get(pid, [])} for pid, p in self.places.items() if p.get("area") == name]
@@ -212,9 +384,16 @@ class Site:
                     "groups": sorted(groups.items(), key=lambda kv: -len(kv[1]))}
             self.page("area.html", f"{slug}.html", title=name, page_id=slug, area=area, maps=bool(pts))
         self.build_pick()
+        self.build_offers()
         self.page("decisions.html", "decisions.html", title="决定", page_id="decisions", decisions=self.data["decisions"])
-        credits = [{"name": self.places.get(pid, {}).get("name", pid), **img} for pid, img in sorted(self.images.items())
-                   if isinstance(img, dict)]
+        credits = []
+        for pid, img in sorted(self.images.items()):
+            if not isinstance(img, dict):
+                continue
+            name = self.places.get(pid, {}).get("name", pid)
+            credits.append({"name": name, **img})
+            for i, m in enumerate(img.get("more") or [], 2):
+                credits.append({"name": f"{name}（第 {i} 张）", **m})
         self.page("credits.html", "credits.html", title="图片来源", page_id="credits", credits=credits)
         self.copy_static()
         self.old_links()
@@ -255,10 +434,13 @@ class Site:
     def copy_static(self):
         shutil.copytree(self.root / "site" / "assets", self.out / "assets")
         for img in self.images.values():
-            if isinstance(img, dict) and img.get("file") and (self.root / img["file"]).exists():
-                dst = self.out / img["file"]
-                dst.parent.mkdir(parents=True, exist_ok=True)
-                shutil.copy2(self.root / img["file"], dst)
+            if not isinstance(img, dict):
+                continue
+            for m in [img] + [x for x in img.get("more") or [] if isinstance(x, dict)]:
+                if m.get("file") and (self.root / m["file"]).exists():
+                    dst = self.out / m["file"]
+                    dst.parent.mkdir(parents=True, exist_ok=True)
+                    shutil.copy2(self.root / m["file"], dst)
         code = self.out / "code"
         code.mkdir()
         files = sorted(p.name for p in TOOLS.glob("*.py"))
