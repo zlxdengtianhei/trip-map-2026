@@ -71,7 +71,8 @@
   }
   function lbClose(){
     if(!lb||lb.root.hidden)return;
-    lb.root.hidden=true;lb.img.removeAttribute('src');document.body.classList.remove('lbopen');
+    lb.root.hidden=true;lb.img.removeAttribute('src');
+    var tm=document.getElementById('tlmodal');if(!tm||tm.hidden)document.body.classList.remove('lbopen');  // 时间轴弹窗还开着就继续锁住背景
     if(lb.from&&lb.from.focus){try{lb.from.focus({preventScroll:true});}catch(e){}}
   }
   function initLightbox(){
@@ -93,7 +94,11 @@
       body.innerHTML=src.innerHTML;from=b;modal.hidden=false;document.body.classList.add('lbopen');
       modal.querySelector('.x').focus();
     });});
-    modal.addEventListener('click',function(e){if(e.target===modal||e.target.closest('.x')||e.target.closest('a'))close();});
+    modal.addEventListener('click',function(e){
+      var a=e.target.closest('a');
+      if(a&&a.hasAttribute('data-gal'))return;  // 点缩略图：放大浮层盖在弹窗上，弹窗不关
+      if(e.target===modal||e.target.closest('.x')||a)close();
+    });
     modal._close=close;
   }
   document.addEventListener('keydown',function(e){
@@ -106,6 +111,25 @@
     var m=document.getElementById('tlmodal');
     if(e.key==='Escape'&&m&&!m.hidden&&m._close){m._close();e.preventDefault();}
   });
+  // 跳到页内卡片（#p-xxx）：卡片在收起的区块里（如“其他方案里的地方”）就先展开，再让浏览器跳过去
+  function openFor(id){
+    var el=id&&document.getElementById(id);if(!el)return false;
+    var opened=false;
+    for(var n=el.parentElement;n;n=n.parentElement){if(n.tagName==='DETAILS'&&!n.open){n.open=true;opened=true;}}
+    return opened;
+  }
+  function initJump(){
+    document.addEventListener('click',function(e){
+      var a=e.target.closest&&e.target.closest('a[href*="#"]');
+      if(!a||a.pathname!==location.pathname||a.hash.length<2)return;  // 只管指向本页的（含“day-10-27.html#p-x”写法）
+      var id;try{id=decodeURIComponent(a.hash.slice(1));}catch(x){return;}
+      openFor(id);
+    });
+    if(location.hash.length>1){
+      var id;try{id=decodeURIComponent(location.hash.slice(1));}catch(x){return;}
+      if(openFor(id)){var el=document.getElementById(id);if(el)el.scrollIntoView();}
+    }
+  }
   // 首页：按维也纳日期显示今天与明天；行程没开始显示第一天，结束后显示最后一天
   function viennaDate(d){return new Intl.DateTimeFormat('en-CA',{timeZone:'Europe/Vienna',year:'numeric',month:'2-digit',day:'2-digit'}).format(d);}
   function initToday(){
@@ -277,5 +301,5 @@
     });
     window.tripPickText=pickText;  // 便于在浏览器控制台里查看将要复制的文字
   }
-  document.addEventListener('DOMContentLoaded',function(){initMaps();initLightbox();initTimeline();initToday();initFold();initPick();tick();setInterval(tick,30000);});
+  document.addEventListener('DOMContentLoaded',function(){initMaps();initLightbox();initTimeline();initJump();initToday();initFold();initPick();tick();setInterval(tick,30000);});
 })();

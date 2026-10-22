@@ -196,8 +196,35 @@ class Site:
             for a in d["meta"]["anchors"]:
                 h, mi = map(int, a["time"].split(":"))
                 a["iso"] = datetime(dt.year, dt.month, dt.day, h % 24, mi, tzinfo=TZ).isoformat()
-            self.cards[d["slug"]] = {c["ref"] for s in d["slots"] for c in s["items"] if c["ref"] in self.places}
+            d["go"], d["go_other"] = self.go_places(d)
+            self.cards[d["slug"]] = ({c["ref"] for s in d["slots"] for c in s["items"] if c["ref"] in self.places}
+                                     | {g["id"] for g in d["go"]} | {g["id"] for g in d["go_other"]})
         return days
+
+    def go_places(self, d):
+        """天页“这天去的地方”：时间轴里类型是“玩”的块的 place。第一套（所有轨道）按最早时刻排、去重；
+        其他方案里出现、第一套没有的另列。每项带“几点到几点 · 谁”（同一地点多个块就都列）。没有 plans 返回两个空表。"""
+        plans = d.get("plans")
+        if not plans:
+            return [], []
+        stores = ({}, {})
+        for i, pl in enumerate(plans):
+            store = stores[0 if i == 0 else 1]
+            for tr in pl["tracks"]:
+                for b in tr["blocks"]:
+                    pid = b["place"]
+                    if b["type"] != "玩" or not pid or pid not in self.places:
+                        continue
+                    e = store.setdefault(pid, {"id": pid, "f": b["f"], "when": []})
+                    e["f"] = min(e["f"], b["f"])
+                    t = f"{b['from']}–{b['to']}" if b["to"] else f"{b['from']} 起"
+                    w = f"{t} · {tr['who']}" if i == 0 else f"{pl['name']}：{t} · {tr['who']}"
+                    if w not in e["when"]:
+                        e["when"].append(w)
+        first, other = stores
+        order = lambda e: (e["f"], e["id"])  # noqa: E731
+        return (sorted(first.values(), key=order),
+                sorted((e for k, e in other.items() if k not in first), key=order))
 
     def render_day_text(self, d, here):
         html = {name: self.md(sec["text"], here) for name, sec in d["sections"].items() if name != "一句话"}
@@ -230,7 +257,7 @@ class Site:
             if not p or not p.get("coords") or pid in seen:
                 continue
             seen.add(pid)
-            rec = pid in d["recommended"]
+            rec = pid in ({g["id"] for g in d["go"]} if d.get("plans") else d["recommended"])
             pts.append({"lat": round(p["coords"][0], 6), "lon": round(p["coords"][1], 6), "name": p["name"],
                         "note": "推荐的一套" if rec else "", "color": COLOR_REC if rec else COLOR_OTHER,
                         "href": f"#p-{pid}" if pid in self.cards[d["slug"]] else self.link(pid)})
@@ -275,7 +302,10 @@ class Site:
                          "mode": b["mode"], "src": b["src"], "note": b["note"], "who": tr["who"], "plan": pl["name"],
                          "place": None, "options": [], "nearby": []}
                     if b["place"]:
-                        v["place"] = {"name": places[b["place"]]["name"], "href": self.link(b["place"], slug)}
+                        pv = price_view(places[b["place"]])
+                        v["place"] = {"id": b["place"], "name": places[b["place"]]["name"], "href": self.link(b["place"], slug),
+                                      "price": pv["line"] if pv else "",
+                                      "has_img": bool((self.images.get(b["place"]) or {}).get("file"))}
                     for o in b["options"]:
                         v["options"].append({"name": places[o]["name"], "href": self.link(o, slug), "label": tripdata.source_label(places[o])})
                     if b["type"] == "吃":
@@ -350,7 +380,7 @@ class Site:
         for i, d in enumerate(days):
             d["html"], d["lead"] = self.render_day_text(d, d["slug"])
             d["extra"] = [n for n in d["order"] if n not in tripdata.SECTIONS]
-            seen = set()
+            seen = {g["id"] for g in d["go"]} | {g["id"] for g in d["go_other"]}
             for s in d["slots"]:
                 for c in s["items"]:
                     c["reason_html"] = self.md(c["reason"], d["slug"], inline=True)

@@ -239,3 +239,14 @@ body.lbopen{overflow:hidden}
 .sbadge.s-est{border:1px solid #aaa}.sbadge.s-unk{border:2px dashed #444}
 @media (max-width:760px){.lb .cap{font-size:12px}.odl{grid-template-columns:1fr;gap:0}.odl dt{margin-top:4px}.bdetail dl,#tlmodalbody dl{grid-template-columns:1fr;gap:0}.bdetail dt,#tlmodalbody dt{margin-top:6px}}
 @media print{.lb,.tl-modal{display:none}}
+
+/* 天页“这天去的地方”卡片上的时刻行；其他方案的收起区 */
+.cand{scroll-margin-top:72px}
+.gwhen{font-size:13px;font-weight:600;font-variant-numeric:tabular-nums;margin:0 0 4px}
+.gwhen span{display:inline-block;margin-right:10px}
+details.gother{margin:10px 0 0}details.gother>summary{cursor:pointer;font-size:14px;font-weight:600;color:var(--acc);min-height:44px;display:flex;align-items:center}
+/* 时间轴弹窗顶部的缩略图 */
+.bdph{margin:0 0 8px}
+.bdph .phlink{display:block}
+.bdph .bdimg{display:block;width:100%;max-height:200px;object-fit:cover;border-radius:8px;background:#eee}
+.bdprice{font-weight:700}
