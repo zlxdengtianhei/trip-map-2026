@@ -1,10 +1,11 @@
-"""给地点找图：列候选、看图后选定、记许可证。图来自维基百科条目配图与 Wikimedia Commons。
+"""给地点找图：列候选、看图后选定、记许可证。图来自维基百科条目配图、Wikimedia Commons 与 Openverse。
 
   python3 tools/images.py find katrin                 # 列候选，缩略图下载到 data/cache/images/katrin/，先看图
   python3 tools/images.py pick katrin "File:BadIschlKatrinSiriuskoglTraun.JPG"   # 960px 存 images/katrin.jpg，写 data/images.yaml
   python3 tools/images.py add-url katrin https://…    # 记用户给的外链（许可证未知，网站只放“查看图片”链接）
   python3 tools/images.py find nussensee --since 2018 --cat Nussensee -n 20   # 只列 2018 年及以后拍的；加查 Commons 分类
   python3 tools/images.py fill-taken                  # 给 data/images.yaml 里还没有 taken 的条目补拍摄日期
+  python3 tools/images.py pick dohany-synagogue openverse:4dff3a28-…   # 选 find 列出的 Openverse 结果
 
 find 只列候选，不替你判断：坐标搜索常混进无关的照片（选型实测：缆车站旁的胡蜂照片），pick 之前必须看图。
 拍摄日期（10-22 加）：find 每行开头显示 [拍摄年份]，pick 把它写进该条的 taken。来源是 Commons 文件页的
@@ -14,6 +15,11 @@ DateTimeOriginal（EXIF 或描述里的 date），写成 YYYY-MM-DD，缺日子�
 --since 年份：只留该年及以后拍的候选（按上传日期代替的也按它算）。
 --cat 分类名：再列 Commons 该分类里最新加入的 n 个文件（地点的分类往往比搜索准，新图也多）。
   按上传时间排的全文搜索试过：混进大量别处的同名纪念碑、人像，不用。
+Openverse（10-22 加，api.openverse.org，不用 key）：汇集 Flickr 等处的 CC 图。find 用同样的搜索词（前两个）再查
+Openverse，排除 Wikimedia 来源（上面已查过），结果写成 openverse:<id> 和 Commons 候选列在一起。只要 CC0、CC BY、
+CC BY-SA、公有领域标记（网站公开、代码 MIT，NC、ND 一律不要）。Openverse 不给拍摄日期：Flickr 的图读照片页里的
+dateTaken（没有就用 datePosted，记 taken_from: upload），别的来源记不了 taken。pick 时再用 Flickr oEmbed 核一次
+作者现在的许可证，不在允许范围就拒绝；Flickr 图存 1024 宽（Flickr 的标准尺寸）。匿名额度 20 次/分钟、200 次/天（搜索与 pick 各算一次），用完时 find 只列 Commons。
 退出码：0 成功；1 没有候选；2 输入或网络错误。
 """
 import argparse
@@ -61,13 +67,23 @@ def _get(url, raw=False):
             return body if raw else json.loads(body)
         except urllib.error.HTTPError as e:
             _last[0] = time.time()
-            if e.code == 429 and attempt < 3:
-                ra = e.headers.get("Retry-After")
-                time.sleep(int(ra) if ra and ra.isdigit() else 5 * (attempt + 1))
+            ra = e.headers.get("Retry-After")
+            ra = int(ra) if ra and ra.isdigit() else 5 * (attempt + 1)
+            # Openverse 的日额度用完时 Retry-After 是几小时，不干等
+            if e.code == 429 and attempt < 3 and ra <= 120:
+                time.sleep(ra)
+                continue
+            if e.code in (500, 502, 503) and attempt < 3:  # Openverse 常有偶发 500，隔几秒重试就好（实测）
+                time.sleep(3 * (attempt + 1))
                 continue
             raise ImageError(f"HTTP {e.code}：{url}")
         except (urllib.error.URLError, TimeoutError, OSError) as e:
-            host = urllib.parse.urlsplit(url).hostname
+            _last[0] = time.time()
+            host = urllib.parse.urlsplit(url).hostname or ""
+            if attempt < 1 and "timed out" in str(getattr(e, "reason", e)):  # Openverse 偶尔一次超时（实测），重试一次
+                continue
+            if host.endswith(("openverse.org", "flickr.com", "staticflickr.com")):
+                raise ImageError(f"连不上 {host}（{getattr(e, 'reason', e)}）")
             raise ImageError(f"连不上 {host}（{getattr(e, 'reason', e)}）。在云端会话里，多半是环境网络没放行 Wikimedia："
                              "到 claude.ai/code 的环境设置把网络改成 Full，或 Custom 加上 *.wikipedia.org、commons.wikimedia.org、thumb.wikimedia.org、"
                              "upload.wikimedia.org。没联网时可以先用 add-url 记用户给的链接")
@@ -155,6 +171,84 @@ def file_info(titles, width):
     return out
 
 
+OV_API = "https://api.openverse.org/v1/images/"
+OV_PREFIX = "openverse:"
+OV_LICENSES = {"by": "CC BY", "by-sa": "CC BY-SA", "cc0": "CC0", "pdm": "Public Domain Mark"}
+# Flickr oEmbed 的 license_id 里允许的几种（其余是 NC、ND、保留所有权利或来历不清）。
+FLICKR_OK = {"4": ("CC BY 2.0", "https://creativecommons.org/licenses/by/2.0/"),
+             "5": ("CC BY-SA 2.0", "https://creativecommons.org/licenses/by-sa/2.0/"),
+             "9": ("CC0", "https://creativecommons.org/publicdomain/zero/1.0/"),
+             "10": ("Public Domain Mark 1.0", "https://creativecommons.org/publicdomain/mark/1.0/"),
+             "11": ("CC BY 4.0", "https://creativecommons.org/licenses/by/4.0/"),
+             "12": ("CC BY-SA 4.0", "https://creativecommons.org/licenses/by-sa/4.0/")}
+
+
+def _flickr_size(url, size):
+    """Flickr 图片地址换尺寸后缀：z = 640 宽（看图），b = 1024 宽（选定）。"""
+    return re.sub(r"(_[a-z])?\.jpg$", f"_{size}.jpg", url) if "staticflickr.com" in url else url
+
+
+def flickr_taken(page_url):
+    """Flickr 照片页里的 dateTaken；没有就用 datePosted（来源记 upload）。Flickr 不用 key 拿不到拍摄日期，只能读页面。"""
+    h = _get(page_url, raw=True).decode("utf-8", "replace")
+    if m := re.search(r'"dateTaken":"((?:19|20)\d\d-\d\d-\d\d)', h):
+        return m[1], None
+    if m := re.search(r'"datePosted":"(\d{9,})"', h):
+        return date.fromtimestamp(int(m[1])).isoformat(), "upload"
+    return None, None
+
+
+def ov_meta(r):
+    """Openverse 一条结果 → 和 file_info 同样的字段；不是允许的许可证给 None。"""
+    lic = r.get("license")
+    if lic not in OV_LICENSES:
+        return None
+    name = OV_LICENSES[lic] + (f" {r['license_version']}" if lic not in ("cc0",) and r.get("license_version") else "")
+    url = r.get("url") or ""
+    flickr = r.get("source") == "flickr"
+    taken, taken_from = flickr_taken(r["foreign_landing_url"]) if flickr else (None, None)
+    jpeg = (r.get("filetype") or "").lower() in ("jpg", "jpeg") or url.lower().endswith((".jpg", ".jpeg"))
+    return {"thumb": _flickr_size(url, "z") if flickr else r.get("thumbnail"), "full": url,
+            "page": r.get("foreign_landing_url"), "license": name, "license_url": r.get("license_url"),
+            "author": r.get("creator") or "未知", "mime": "image/jpeg" if jpeg else r.get("filetype"),
+            "w": r.get("width"), "h": r.get("height"), "taken": taken, "taken_from": taken_from,
+            "source": r.get("source")}
+
+
+def ov_search(q, n):
+    """Openverse 搜图，只要允许的许可证，排除 Wikimedia（Commons 上面已经查过）。"""
+    js = _get(OV_API + "?" + urllib.parse.urlencode({"q": q, "license": ",".join(OV_LICENSES), "page_size": n,
+                                                     "excluded_source": "wikimedia"}))
+    return js.get("results", [])
+
+
+def ov_pick_meta(ov_id):
+    r = _get(OV_API + urllib.parse.quote(ov_id) + "/")
+    meta = ov_meta(r)
+    if not meta:
+        raise ImageError(f"Openverse 上 {ov_id} 的许可证是 {r.get('license')} {r.get('license_version')}，不能用")
+    if meta["source"] == "flickr":  # 以 Flickr 现在的许可证为准：作者可能改过，Openverse 的索引会旧
+        o = _get("https://www.flickr.com/services/oembed/?" + urllib.parse.urlencode(
+            {"format": "json", "url": meta["page"]}))
+        if str(o.get("license_id")) not in FLICKR_OK:
+            raise ImageError(f"Flickr 上这张现在的许可证是 {o.get('license') or o.get('license_id')}，不能用")
+        meta["license"], meta["license_url"] = FLICKR_OK[str(o["license_id"])]
+        meta["thumb"] = _flickr_size(meta["full"], "b")
+    else:
+        meta["thumb"] = meta["full"]
+    return meta
+
+
+def _image_bytes(meta):
+    """先下 thumb；Flickr 换尺寸失败（原图另有密钥时会这样）就下 Openverse 给的原地址。"""
+    try:
+        return _get(meta["thumb"], raw=True)
+    except ImageError:
+        if meta.get("full") and meta["full"] != meta["thumb"]:
+            return _get(meta["full"], raw=True)
+        raise
+
+
 def taken_label(meta):
     """find 每行开头的 [年份]；上传日期代替的写 [上传 年份]。"""
     y = (meta.get("taken") or "????")[:4]
@@ -205,10 +299,38 @@ def candidates(p, radius_m=500, n=6, queries=None, cats=()):
     return list(found.items())
 
 
+def ov_candidates(p, n=6, queries=None):
+    """Openverse 候选：[(openverse:<id>, 来源说明, meta)]。额度用完或连不上只给警告，不影响 Commons 候选。"""
+    names = queries or [x for x in dict.fromkeys([p.get("name_local"), p.get("name")]) if x]
+    out, seen = [], set()
+    for q in names[:2]:
+        try:
+            results = ov_search(q, n)
+        except ImageError as e:
+            print(f"警告：Openverse 查不了（{e}），这次只列 Commons 候选", file=sys.stderr)
+            break
+        for r in results:
+            if r["id"] in seen or NOT_PHOTO.search(r.get("title") or ""):
+                continue
+            seen.add(r["id"])
+            try:
+                meta = ov_meta(r)
+            except ImageError as e:
+                print(f"警告：{r.get('foreign_landing_url')} 读不了（{e}），跳过", file=sys.stderr)
+                continue
+            if meta:
+                out.append((OV_PREFIX + r["id"], f"Openverse·{r.get('source')} 搜索“{q}”：{(r.get('title') or '')[:50]}"
+                            f"｜{meta['page']}", meta))
+    return out
+
+
 def find(pid, radius_m=500, n=6, queries=None, since=None, cats=()):
     p = place(pid)
     cands = candidates(p, radius_m, n, queries, cats=cats)
     info = file_info([t for t, _ in cands], PREVIEW_W)
+    for t, why, meta in ov_candidates(p, n, queries):
+        cands.append((t, why))
+        info[t] = meta
     folder = CACHE / pid
     folder.mkdir(parents=True, exist_ok=True)
     for old in folder.glob("*"):
@@ -223,7 +345,11 @@ def find(pid, radius_m=500, n=6, queries=None, since=None, cats=()):
             continue
         k = len(rows) + 1
         path = folder / f"{k:02d}.jpg"
-        path.write_bytes(_get(meta["thumb"], raw=True))
+        try:
+            path.write_bytes(_image_bytes(meta))
+        except ImageError as e:
+            print(f"警告：{t} 的缩略图下不了（{e}），跳过", file=sys.stderr)
+            continue
         rows.append({"n": k, "title": t, "why": why, "preview": str(path.relative_to(ROOT)), **meta})
     (folder / "candidates.json").write_text(json.dumps(rows, ensure_ascii=False, indent=1), encoding="utf-8")
     return p, rows
@@ -243,18 +369,22 @@ def _load_yaml():
 
 def pick(pid, title):
     place(pid)
-    title = title.replace("_", " ")
-    if not title.startswith("File:"):
-        title = "File:" + title
-    meta = file_info([title], PICK_W).get(title)
-    if not meta:
-        raise ImageError(f"Commons 上没有 {title}（只支持 Commons 上的文件；别处的图用 add-url）")
+    ov_id = title[len(OV_PREFIX):] if title.startswith(OV_PREFIX) else None
+    if ov_id:
+        meta = ov_pick_meta(ov_id)
+    else:
+        title = title.replace("_", " ")
+        if not title.startswith("File:"):
+            title = "File:" + title
+        meta = file_info([title], PICK_W).get(title)
+        if not meta:
+            raise ImageError(f"Commons 上没有 {title}（只支持 Commons 文件与 find 列出的 openverse:…；别处的图用 add-url）")
     ext = {"image/png": ".png", "image/webp": ".webp"}.get(meta["mime"], ".jpg")
     OUT.mkdir(exist_ok=True)
     for old in OUT.glob(f"{pid}.*"):
         old.unlink()
     path = OUT / f"{pid}{ext}"
-    path.write_bytes(_get(meta["thumb"], raw=True))
+    path.write_bytes(_image_bytes(meta))
     data = _load_yaml()
     data[pid] = {"file": str(path.relative_to(ROOT)), "author": meta["author"], "license": meta["license"],
                  "license_url": meta["license_url"] or None, "source_page": meta["page"],
@@ -312,7 +442,7 @@ def main(argv=None):
     f.add_argument("--cat", action="append", default=[], help="再列 Commons 这个分类里最新加入的 n 个文件（可写多次）")
     k = sub.add_parser("pick", help="选定一张：下载 960px，写许可证")
     k.add_argument("id")
-    k.add_argument("title", help="File:… 文件名（find 列出的）")
+    k.add_argument("title", help="find 列出的 File:… 文件名，或 openverse:<id>")
     t = sub.add_parser("fill-taken", help="给还没有 taken 的条目补拍摄日期")
     t.add_argument("--redo", action="store_true", help="已有 taken 的也重取")
     u = sub.add_parser("add-url", help="记用户给的外链")
