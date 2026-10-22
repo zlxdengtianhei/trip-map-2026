@@ -31,6 +31,10 @@ img{max-width:100%}
 .daycard{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:12px 14px;border-top:4px solid var(--fg)}
 .daycard h3{margin:0 0 2px;font-size:17px}
 .daycard .when{font-size:13px;color:var(--muted)}
+.daycard .label:not(:empty)::after{content:" · ";font-weight:400}
+.daycard.now{border-top-color:var(--acc)}
+.daycard.now .label{color:var(--acc)}
+.daycard.past{opacity:.6}
 .anchors{list-style:none;padding:0;margin:6px 0}
 .anchors li{display:flex;gap:8px;padding:3px 0;border-bottom:1px dashed var(--line)}
 .anchors .t{font-weight:700;font-variant-numeric:tabular-nums;white-space:nowrap}
@@ -48,6 +52,7 @@ img{max-width:100%}
 .facts span,.facts a{display:inline-block;margin-right:10px}
 details.more{margin-top:4px}details.more>summary{cursor:pointer;font-size:13px;color:var(--acc)}details.more p{margin:3px 0}
 .todo{list-style:none;padding:0;margin:4px 0}.todo li{padding:6px 0;border-bottom:1px solid var(--line)}.todo .due{display:inline-block;min-width:3.2em}
+.duenote{font-size:12px;font-weight:600;margin-right:4px}.duenote.late{color:var(--bad)}.duenote.soon{color:var(--warn)}
 .cards>*,.cand>*,.place>*{min-width:0}
 .anchors .t,.anchors .cd{flex:none}.anchors li>span:nth-child(2){flex:1;min-width:0}
 .links{font-size:13px}.links a{margin-right:10px}

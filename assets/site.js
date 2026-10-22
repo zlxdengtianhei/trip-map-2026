@@ -130,29 +130,46 @@
       if(openFor(id)){var el=document.getElementById(id);if(el)el.scrollIntoView();}
     }
   }
-  // 首页：按维也纳日期显示今天与明天；行程没开始显示第一天，结束后显示最后一天
+  // 首页：每天一张卡片，全部列出（没有 JS 时也是全部，第一天标“第一天”）。
+  // 行程开始前：按日期列，第一天标“第一天”，提示还有几天出发。行程中：今天、明天放最前并标出，已过的天标“已过”，其余照日期列在后面。
+  // 结束后：全部照日期列，提示行程已结束。日期按维也纳时间。
   function viennaDate(d){return new Intl.DateTimeFormat('en-CA',{timeZone:'Europe/Vienna',year:'numeric',month:'2-digit',day:'2-digit'}).format(d);}
   function initToday(){
     var box=document.getElementById('nowcards');if(!box)return;
     var cards=[].slice.call(box.querySelectorAll('.daycard[data-date]'));if(!cards.length)return;
     var dates=cards.map(function(c){return c.dataset.date;});
     var now=new Date(),today=viennaDate(now),tomorrow=viennaDate(new Date(now.getTime()+86400000));
-    var show=[],label={},note='';
+    var label={},note='',front=[];
     if(today<dates[0]){
-      show=[dates[0]];label[dates[0]]='第一天';
+      label[dates[0]]='第一天';
       var days=Math.round((Date.parse(dates[0]+'T00:00:00Z')-Date.parse(today+'T00:00:00Z'))/86400000);
       note='行程还没开始，还有 '+days+' 天出发。';
     }else if(today>dates[dates.length-1]){
-      show=[dates[dates.length-1]];label[show[0]]='最后一天';note='行程已结束。';
+      note='行程已结束。';
     }else{
-      if(dates.indexOf(today)>=0){show.push(today);label[today]='今天';}
-      if(dates.indexOf(tomorrow)>=0){show.push(tomorrow);label[tomorrow]='明天';}
+      if(dates.indexOf(today)>=0){front.push(today);label[today]='今天';}
+      if(dates.indexOf(tomorrow)>=0){front.push(tomorrow);label[tomorrow]='明天';}
+      dates.forEach(function(d){if(d<today)label[d]='已过';});
+      note='行程中：今天、明天放在最前面。';
     }
+    // 先放今天、明天，再按日期放其余的（cards 本来就按日期排）
+    front.map(function(d){return cards[dates.indexOf(d)];}).concat(cards.filter(function(c){return front.indexOf(c.dataset.date)<0;}))
+      .forEach(function(c){box.appendChild(c);});
     cards.forEach(function(c){
-      var on=show.indexOf(c.dataset.date)>=0;c.hidden=!on;
-      var t=c.querySelector('.label');if(on&&t)t.textContent=label[c.dataset.date];
+      var t=c.querySelector('.label'),l=label[c.dataset.date]||'';
+      if(t)t.textContent=l;
+      c.classList.toggle('now',l==='今天'||l==='明天');c.classList.toggle('past',l==='已过');
     });
     var n=document.getElementById('nownote');if(n)n.textContent=note;
+  }
+  // 首页“要提前做的”：截止日是今天的标“今天截止”，已过的标“已过截止”（日期按维也纳时间；只是提醒，做没做以状态为准）
+  function initDue(){
+    var today=viennaDate(new Date());
+    document.querySelectorAll('.todo .due[data-due]').forEach(function(b){
+      var d=b.dataset.due,n=b.parentNode.querySelector('.duenote');if(!n)return;
+      if(d<today){n.textContent=' 已过截止';n.className='duenote late';}
+      else if(d===today){n.textContent=' 今天截止';n.className='duenote soon';}
+    });
   }
   // 硬节点倒计时：[data-at] 是带时区的 ISO 时刻
   function tick(){
@@ -301,5 +318,5 @@
     });
     window.tripPickText=pickText;  // 便于在浏览器控制台里查看将要复制的文字
   }
-  document.addEventListener('DOMContentLoaded',function(){initMaps();initLightbox();initTimeline();initJump();initToday();initFold();initPick();tick();setInterval(tick,30000);});
+  document.addEventListener('DOMContentLoaded',function(){initMaps();initLightbox();initTimeline();initJump();initToday();initDue();initFold();initPick();tick();setInterval(tick,30000);});
 })();

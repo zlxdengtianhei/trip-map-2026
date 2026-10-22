@@ -3,7 +3,7 @@
   python3 tools/build_site.py                    # 输出到 _site/
   python3 tools/build_site.py --root DIR --out DIR
 
-页面：首页（今天与明天、要提前做的、待你定、每天入口）、每天一页（头里有 plans: 就画时间轴；天页地图可标出 5 km 内
+页面：首页（每天一张卡片，行程中今天、明天置顶；要提前做的、待你定、每天入口）、每天一页（头里有 plans: 就画时间轴；天页地图可标出 5 km 内
 库里其他地点）、三个地区页、“选地方”页（pick.html：每个地方标想去、不去或不标，想去的选想哪天，复制成一段文字给 agent）、
 “票价与优惠”页（offers.html，读 data/offers.yaml）、决定页、图片来源页、code/（工具代码与 MIT 许可）。
 名单里带“=>”的词先替换（如名字显示成“本人”），邮箱打码；扫描仍发现名单词、邮箱、订单号样式就以 1 退出，不能发布。
@@ -395,6 +395,9 @@ class Site:
                       day=d, maps=bool(d["map"]["points"]), prev=days[i - 1] if i else None,
                       next=days[i + 1] if i + 1 < len(days) else None)
         todo_open = [t for t in self.data["todo"] if t.get("状态") in ("待办", "进行中")]
+        for t in todo_open:  # 截止里第一个“月-日”当作截止日（首页 JS 据此标“今天截止”“已过截止”）
+            m = re.search(r"(\d{1,2})-(\d{1,2})", str(t.get("截止") or ""))
+            t["due_iso"] = f"2026-{int(m.group(1)):02d}-{int(m.group(2)):02d}" if m else ""
         pick_n = sum(1 for p in self.places.values() if p.get("area") in AREA_SLUG and pickable(p))
         self.page("index.html", "index.html", title="首页", page_id="index", days=days, todo_open=todo_open,
                   decisions=self.data["decisions"], pick_n=pick_n,
@@ -453,7 +456,7 @@ class Site:
         # 旧站（10-19 前）的页面名改成跳转页，存过的旧链接仍能打开
         old = {f"day-{d}.html": f"day-10-{d}.html" for d in range(25, 32)}
         old.update({"today.html": "index.html", "decide.html": "decisions.html", "map.html": "index.html",
-                    "places.html": "index.html", "budget.html": "index.html", "notes.html": "index.html",
+                    "places.html": "index.html", "budget.html": "offers.html", "notes.html": "index.html",
                     "updates.html": "index.html"})
         for src, dst in old.items():
             if not (self.out / src).exists():
