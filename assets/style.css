@@ -255,3 +255,58 @@ details.gother{margin:10px 0 0}details.gother>summary{cursor:pointer;font-size:1
 .bdph .phlink{display:block}
 .bdph .bdimg{display:block;width:100%;max-height:200px;object-fit:cover;border-radius:8px;background:#eee}
 .bdprice{font-weight:700}
+
+/* ===== 买票与预约、要联系的人（bookings.html、contacts.html）；优惠页按天排 ===== */
+.navn{display:inline-block;min-width:18px;margin-left:5px;padding:0 5px;border-radius:9px;background:var(--bad);color:#fff;font-size:12px;font-weight:700;line-height:18px;text-align:center}
+nav a.on .navn{background:#fff;color:var(--fg)}
+.callout.bkin{border-left-color:var(--warn);background:#fff6e5}
+.callout.bknow{border-left-color:var(--bad);background:#fdf0ee;padding:10px 14px 12px}
+.callout.bknow h2{margin:0 0 4px;border:0;padding:0;font-size:18px}
+.bkurgent{list-style:none;margin:6px 0 0;padding:0}
+.bkurgent li{padding:7px 0;border-top:1px dashed #e6c9c4;display:flex;flex-wrap:wrap;gap:2px 8px;align-items:baseline}
+.bkurgent li:first-child{border-top:0}
+a.bkjump{color:var(--fg);display:inline-block;min-height:28px}
+.bkdue{font-variant-numeric:tabular-nums;font-weight:700;display:inline-block;min-width:3em;color:var(--warn)}
+.bkdue.late,.duenote.bkdue.late{color:var(--bad)}
+.bkst{display:inline-block;font-size:12px;font-weight:700;border-radius:10px;padding:1px 9px;white-space:nowrap;vertical-align:1px}
+.bkst.st-open{background:#ffe3a3;color:#7a4b00}
+.bkst.st-walk{background:#e3edff;color:#1f4fa8}
+.bkst.st-done{background:#dff3e6;color:#1d6a3d}
+.bkst.st-skip{background:#e8e8ea;color:#555}
+.bkwhy{display:inline-block;font-size:12px;border-radius:10px;padding:1px 8px;background:#eee;color:#555;white-space:nowrap}
+.bkwhy.hot{background:#f6cfca;color:#8f2a1d;font-weight:700}
+.bkk{display:inline-block;font-size:12px;border-radius:4px;padding:0 6px;background:var(--fg);color:#fff;vertical-align:1px}
+.bkbar{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:10px 12px;margin:12px 0}
+.bkgroup{margin:6px 0 20px}
+.bkgroup h2{scroll-margin-top:72px}
+.bkgroup.first h2{border-bottom-color:var(--bad)}
+details.bk{background:var(--card);border:1px solid var(--line);border-left:5px solid var(--line);border-radius:10px;margin:8px 0;padding:0 12px;scroll-margin-top:72px}
+details.bk.st-open{border-left-color:#e0a100}
+details.bk.st-walk{border-left-color:#2f6fdb}
+details.bk.st-done{border-left-color:var(--ok);opacity:.72}
+details.bk.st-skip{border-left-color:#aaa;opacity:.6}
+details.bk>summary{cursor:pointer;padding:9px 0;list-style:none;min-height:44px}
+details.bk>summary::-webkit-details-marker{display:none}
+details.bk>summary::before{content:'▸ ';color:var(--muted)}details.bk[open]>summary::before{content:'▾ '}
+.bkmeta{display:block;font-size:13px;color:var(--muted);margin:2px 0 0 14px}
+.bkdl{display:grid;grid-template-columns:max-content 1fr;gap:4px 12px;margin:0 0 8px;font-size:14px}
+.bkdl dt{font-weight:600;color:var(--muted);white-space:nowrap}.bkdl dd{margin:0;min-width:0}
+.bkfirst{font-weight:700}
+a.bktel{font-weight:700}
+article.ccard{background:var(--card);border:1px solid var(--line);border-left:5px solid var(--line);border-radius:12px;padding:10px 14px 12px;margin:10px 0;scroll-margin-top:72px}
+article.ccard.st-open{border-left-color:#e0a100}article.ccard.st-done{border-left-color:var(--ok);opacity:.75}article.ccard.st-skip{opacity:.6}
+.chead{display:flex;flex-wrap:wrap;gap:4px 10px;align-items:center;justify-content:space-between}
+.chead h3{margin:0;font-size:17px}
+.cwhat{margin:4px 0}
+.cact{display:flex;flex-wrap:wrap;gap:8px;margin:8px 0 4px}
+.btn.nobtn{cursor:default}
+.draft{border:1px solid var(--line);border-radius:8px;margin:8px 0;background:#fafaf8}
+.dhead{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:4px 8px 0 10px}
+.draft pre{margin:0;padding:6px 10px 10px;white-space:pre-wrap;word-break:break-word;font:14px/1.5 -apple-system,BlinkMacSystemFont,"PingFang SC",sans-serif}
+.cpbtn{min-height:36px;font-size:14px;padding:0 14px}
+.cpbtn.ok{background:var(--ok);border-color:var(--ok);color:#fff}
+.obuy{background:#eef7f1;border-left:4px solid var(--ok);border-radius:6px;padding:6px 10px;margin:8px 0 4px;font-size:14px}
+details#o-bad{margin-top:28px}
+@media (max-width:760px){.bkdl{grid-template-columns:1fr;gap:0}.bkdl dt{margin-top:5px}}
+@media print{.bkbar,.cpbtn{display:none}}
+.bkmiss{font-weight:600}.bkmiss.todo{font-weight:400;color:var(--muted);font-style:italic}

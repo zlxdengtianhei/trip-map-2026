@@ -5,7 +5,8 @@
 
 页面：首页（每天一张卡片，行程中今天、明天置顶；要提前做的、待你定、每天入口）、每天一页（头里有 plans: 就画时间轴；天页地图可标出 5 km 内
 库里其他地点）、三个地区页、“选地方”页（pick.html：每个地方标想去、不去或不标，想去的选想哪天，复制成一段文字给 agent）、
-“票价与优惠”页（offers.html，读 data/offers.yaml）、决定页、图片来源页、code/（工具代码与 MIT 许可）。
+“票价与优惠”页（offers.html，读 data/offers.yaml，按哪天用得上排）、“买票与预约”页（bookings.html）与“要联系的人”页（contacts.html），
+都读 data/bookings.yaml、决定页、图片来源页、code/（工具代码与 MIT 许可）。
 名单里带“=>”的词先替换（如名字显示成“本人”），邮箱打码；扫描仍发现名单词、邮箱、订单号样式就以 1 退出，不能发布。
 数据不合格式时照常生成能生成的部分；格式问题用 check.py 查。依赖：jinja2、pyyaml、markdown（见 requirements.txt）。
 """
@@ -51,6 +52,12 @@ TL_SURE = {"定": ("fix", "定：时刻表上有的，或已订的"), "估": ("e
            "不定": ("unk", "不定：还不知道，先留着位置")}
 OFFER_VERDICT_CLS = {"推荐": "v-rec", "看情况": "v-maybe", "不划算": "v-no", "已有": "v-have"}
 OFFER_VERDICT_ORDER = {v: i for i, v in enumerate(["推荐", "看情况", "已有", "不划算"])}
+OFFER_ACTIVE = ("推荐", "看情况", "已有")   # 优惠页：这几种按“哪天用得上”排，其余收到页末
+# 买票与预约页（data/bookings.yaml）：状态 → 样式；要联系的人页只收这几种
+BK_STATUS_CLS = {"待买": "st-open", "待订": "st-open", "待联系": "st-open", "现场买": "st-walk",
+                 "已买": "st-done", "已订": "st-done", "已联系": "st-done", "不用了": "st-skip"}
+BK_KIND_ORDER = {k: i for i, k in enumerate(tripdata.BOOKING_KINDS)}
+CONTACT_KINDS = ("订位", "联系", "住处")
 
 
 def pickable(p):
@@ -127,6 +134,15 @@ def rating_view(p):
     return {"text": text, "checked": r.get("checked") or "", "rec": bool(google and not p.get("sources"))}
 
 
+_URL_IN_TEXT = re.compile(r"https?://[^\s<>\"）)，；]+")
+
+
+def linkify(text):
+    """备注里的网址变成可点的链接（先转义，再包 <a>），句号后换行。"""
+    html = _URL_IN_TEXT.sub(lambda m: f'<a href="{m.group(0)}" target="_blank" rel="noopener">{m.group(0)} ↗</a>', str(escape(text or "")))
+    return Markup(re.sub(r"。(?=\S)", "。<br>", html))   # 一句一行，长备注好读
+
+
 def _dur(m):
     return f"{m // 60} h {m % 60:02d}" if m >= 60 and m % 60 else (f"{m // 60} h" if m >= 60 else f"{m} 分")
 
@@ -144,10 +160,13 @@ class Site:
         self.policy = privacy.load(self.root / "config" / "privacy.txt")
         self.env = Environment(loader=FileSystemLoader(str(self.root / "site" / "templates")), autoescape=True,
                                trim_blocks=False)
+        self.env.filters["linkify"] = linkify
         self.env.globals.update(trail=trail_view, price=price_view, rating=rating_view, gallery=self.gallery,
                                 source_label=tripdata.source_label)
         self.offers = self.data["offers"]
         self.offers_by_id = {o["id"]: o for o in self.offers}
+        self.bookings = self.data.get("bookings") or []
+        self.bk_by_day = {}
         self.cards = {}  # 天页 slug → 有卡片的地点 id
 
     def gallery(self, pid, name):
@@ -331,24 +350,107 @@ class Site:
         return out
 
     def offers_groups(self):
-        """优惠页：按 scope 分组（全程、各地区、城际交通，其余的排后面），组内推荐的在前。"""
-        groups = {}
+        """优惠页：现在有效的（推荐、看情况、已有）按“哪天用得上”排（用 days 的第一天；没写 days 的放“没有固定日子”）；
+        不划算的另放，收在页末。组内推荐的在前。"""
+        def prep(o):
+            o["vcls"] = OFFER_VERDICT_CLS.get(o.get("verdict"), "v-have")
+            o["place_links"] = [{"name": self.places[x]["name"], "href": self.link(x)} for x in o.get("places") or [] if x in self.places]
+            return o
+
+        def key(o):
+            return (OFFER_VERDICT_ORDER.get(o.get("verdict"), 9), o["name"] if isinstance(o.get("name"), str) else "")
+
+        days_title = {d["date_iso"][5:]: d for d in self.days}
+        by_day, nodays, inactive = {}, [], []
         for o in self.offers:
-            groups.setdefault(o.get("scope") or "其他", []).append(o)
-        order = tripdata.OFFER_SCOPES + [k for k in groups if k not in tripdata.OFFER_SCOPES]
-        out = []
-        for sc in order:
-            if sc in groups:
-                items = sorted(groups[sc], key=lambda o: (OFFER_VERDICT_ORDER.get(o.get("verdict"), 9), o["name"] if isinstance(o.get("name"), str) else ""))
-                for o in items:
-                    o["vcls"] = OFFER_VERDICT_CLS.get(o.get("verdict"), "v-have")
-                    o["place_links"] = [{"name": self.places[x]["name"], "href": self.link(x)} for x in o.get("places") or [] if x in self.places]
-                out.append({"scope": sc, "slug": "offers-" + str(order.index(sc)), "items": items})
-        return out
+            prep(o)
+            if o.get("verdict") not in OFFER_ACTIVE:
+                inactive.append(o)
+            elif o.get("days"):
+                o["also_days"] = o["days"][1:]
+                by_day.setdefault(sorted(o["days"])[0], []).append(o)
+            else:
+                nodays.append(o)
+        groups = []
+        for mmdd in sorted(by_day):
+            d = days_title.get(mmdd)
+            label = f"{mmdd} {tripdata.weekday(datetime(2026, int(mmdd[:2]), int(mmdd[3:])).date())}"
+            groups.append({"slug": "od-" + mmdd, "label": label, "title": (d["meta"].get("title") if d else "") or "", "items": sorted(by_day[mmdd], key=key)})
+        if nodays:
+            groups.append({"slug": "od-any", "label": "没有固定日子", "title": "全程或看情况才用", "items": sorted(nodays, key=key)})
+        order = tripdata.OFFER_SCOPES + sorted({o.get("scope") for o in inactive if o.get("scope") not in tripdata.OFFER_SCOPES} - {None})
+        inactive.sort(key=lambda o: (order.index(o.get("scope")) if o.get("scope") in order else 99, key(o)))
+        return {"groups": groups, "inactive": inactive, "n_active": sum(len(g["items"]) for g in groups)}
 
     def build_offers(self):
         n_rec = sum(1 for o in self.offers if o.get("verdict") == "推荐")
-        self.page("offers.html", "offers.html", title="票价与优惠", page_id="offers", groups=self.offers_groups(), n_rec=n_rec)
+        self.page("offers.html", "offers.html", title="票价与优惠", page_id="offers", og=self.offers_groups(), n_rec=n_rec)
+
+    # ---- 买票与预约、要联系的人 ----
+    def prepare_bookings(self):
+        """补上页面要用的字段：状态样式、哪天的天页、电话链接、网址列表。电话链接用连字符，免得被隐私扫描当成长数字。"""
+        today = datetime.now(TZ).strftime("%m-%d")
+        days = {d["date_iso"][5:]: d for d in self.days}
+        for b in self.bookings:
+            base = b.get("status_base") or ""
+            b["scls"] = BK_STATUS_CLS.get(base, "st-skip")
+            b["is_open"] = base in tripdata.BOOKING_OPEN
+            b["is_done"] = base in tripdata.BOOKING_DONE
+            due = b.get("due") or ""
+            b["urgent"] = b["is_open"] and (b.get("why_now") in tripdata.BOOKING_URGENT or (bool(due) and due <= today))
+            b["late"] = b["is_open"] and bool(due) and due < today
+            d = days.get(b.get("day") or "")
+            b["day_slug"] = d["slug"] if d else ""
+            b["wh"] = [x if isinstance(x, dict) else {"t": x} for x in b.get("where") or []]
+            c = b.get("contact")
+            if c:
+                tel = c.get("tel") or ""
+                c["tel_href"] = "tel:" + re.sub(r"\s+", "-", tel.strip()) if re.search(r"\d{3}", tel) else ""
+                c["has_email"] = bool(c.get("email"))
+            pid = b.get("place")
+            b["place_name"] = self.places[pid]["name"] if pid in self.places else ""
+            b["place_href"] = self.link(pid) if pid in self.places else ""
+        self.bk_today = today
+        self.bk_by_day = {}
+        for b in self.bookings:
+            if b.get("status_base") == "不用了":
+                continue
+            e = self.bk_by_day.setdefault(b.get("day") or "", {"n": 0, "open": 0})
+            e["n"] += 1
+            e["open"] += 1 if b["is_open"] else 0
+
+    def bk_sorted(self, items):
+        return sorted(items, key=lambda b: (BK_KIND_ORDER.get(b.get("kind"), 9), b.get("time") or "", b["id"]))
+
+    def bk_groups(self, items, first_label):
+        """按用的那天分组。还没办、截止日 ≤ 今天（维也纳日期）的先放进“今天要做完的”，不在天组里重复。"""
+        first = [b for b in items if b["is_open"] and b.get("due") and b["due"] <= self.bk_today]
+        rest = [b for b in items if b not in first]
+        days = {d["date_iso"][5:]: d for d in self.days}
+        groups = []
+        if first:
+            first.sort(key=lambda b: (b.get("due") or "", BK_KIND_ORDER.get(b.get("kind"), 9), b["id"]))
+            groups.append({"slug": "d-first", "label": first_label.format(today=self.bk_today), "title": "", "items": first, "first": True})
+        for mmdd in sorted({b.get("day") or "" for b in rest}):
+            sub = self.bk_sorted([b for b in rest if (b.get("day") or "") == mmdd])
+            d = days.get(mmdd)
+            label = f"{mmdd} {tripdata.weekday(datetime(2026, int(mmdd[:2]), int(mmdd[3:])).date())}" if mmdd else "没写日期"
+            groups.append({"slug": "d-" + mmdd, "label": label, "title": (d["meta"].get("title") if d else "") or "",
+                           "day_slug": d["slug"] if d else "", "items": sub, "n_open": sum(1 for b in sub if b["is_open"])})
+        return groups
+
+    def build_bookings(self):
+        items = self.bookings
+        urgent = sorted([b for b in items if b["urgent"]], key=lambda b: (b.get("due") or "99-99", BK_KIND_ORDER.get(b.get("kind"), 9), b["id"]))
+        kinds = [(k, sum(1 for b in items if b.get("kind") == k)) for k in tripdata.BOOKING_KINDS]
+        self.page("bookings.html", "bookings.html", title="买票与预约", page_id="bookings", urgent=urgent,
+                  groups=self.bk_groups(items, "{today} 要做完的（还没做完）"), kinds=[x for x in kinds if x[1]],
+                  n_open=sum(1 for b in items if b["is_open"]), n_all=len(items))
+        citems = [b for b in items if b.get("kind") in CONTACT_KINDS]
+        curgent = sorted([b for b in citems if b["is_open"]], key=lambda b: (b.get("due") or "99-99", b["id"]))
+        self.page("contacts.html", "contacts.html", title="要联系的人", page_id="contacts", urgent=curgent,
+                  groups=self.bk_groups(citems, "{today} 要做完的（还没做完）"),
+                  n_open=len(curgent), n_all=len(citems))
 
     def usage(self, days):
         used = {}
@@ -367,8 +469,8 @@ class Site:
     def page(self, tpl, rel, **ctx):
         base = {"generated": datetime.now(TZ).strftime("%m-%d %H:%M"), "nav_days": self.days,
                 "nav_areas": self.nav_areas, "places": self.places, "images": self.images, "maps": False,
-                "offers": self.offers, "offers_by_id": self.offers_by_id,
-                "up": "../" * rel.count("/")}
+                "offers": self.offers, "offers_by_id": self.offers_by_id, "bk_by_day": self.bk_by_day,
+                "bk_open": sum(1 for b in self.bookings if b.get("is_open")), "up": "../" * rel.count("/")}
         self.write(rel, self.env.get_template(tpl).render(**{**base, **ctx}))
 
     def build(self):
@@ -377,6 +479,7 @@ class Site:
         self.out.mkdir(parents=True)
         self.days = days = self.prepare_days()
         self.nav_areas = [{"name": n, "slug": s} for n, s in AREA_SLUG.items()]
+        self.prepare_bookings()   # 天页与首页要用它的计数，所以先于它们
         for i, d in enumerate(days):
             d["html"], d["lead"] = self.render_day_text(d, d["slug"])
             d["extra"] = [n for n in d["order"] if n not in tripdata.SECTIONS]
@@ -401,6 +504,7 @@ class Site:
         pick_n = sum(1 for p in self.places.values() if p.get("area") in AREA_SLUG and pickable(p))
         self.page("index.html", "index.html", title="首页", page_id="index", days=days, todo_open=todo_open,
                   decisions=self.data["decisions"], pick_n=pick_n,
+                  bk_urgent=sorted([b for b in self.bookings if b["urgent"]], key=lambda b: (b.get("due") or "99-99", b["id"])),
                   n_rec=sum(1 for o in self.offers if o.get("verdict") == "推荐"))
         used = self.usage(days)
         for name, slug in AREA_SLUG.items():
@@ -418,6 +522,7 @@ class Site:
             self.page("area.html", f"{slug}.html", title=name, page_id=slug, area=area, maps=bool(pts))
         self.build_pick()
         self.build_offers()
+        self.build_bookings()
         self.page("decisions.html", "decisions.html", title="决定", page_id="decisions", decisions=self.data["decisions"])
         credits = []
         for pid, img in sorted(self.images.items()):

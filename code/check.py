@@ -8,6 +8,8 @@
 offers 引用的优惠 id 都在 data/offers.yaml 里；优惠文件 data/offers.yaml（没有这个文件不算问题）每条字段齐全、取值合法；
 天页头 plans（时间轴）的时刻是 HH:MM、type 与 sure 取值合法、同一轨道的块不重叠、place 与 options 的 id 都在地点库里；
 图片的 taken（拍摄年份或日期）与 more（更多图）写法对；
+买票与预约文件 data/bookings.yaml（没有这个文件不算问题）每条字段齐全、取值合法、place 在地点库里，订位与联系要有 contact；
+优惠的 days（哪天用得上）写法对；
 要提前做的状态合法；“待你定”不超过 3 条；U- 原话 id 在 log/原话/ 里找得到；喂给网站的文件（以及已有的 _site/）里没有隐私词。
 字段写法在 tripdata.py 里查（写错的报出来，网站当作没写）；这里另查要读文件系统的（资料文件在不在）。
 查询命令也在 tripdata.py：near（附近的地点）、find（搜地点）、day（按时间轴看一天），见该文件开头。
@@ -24,7 +26,7 @@ import tripdata  # noqa: E402
 
 # 新系统原话 id 是 U-MMDD-HHMMSS-<会话前 4 位>（10-20 04:1x 之前的没有后缀）；旧系统的 U-<8 位十六进制>-<6 位> 不在本仓，不查。
 UID = re.compile(r"\bU-\d{4}-\d{6}(?:-[0-9a-z]{4})?\b")
-SITE_SOURCES = ["trip/days/*.md", "trip/要提前做的.md", "trip/决定.md", "data/places.yaml", "data/images.yaml", "data/offers.yaml"]
+SITE_SOURCES = ["trip/days/*.md", "trip/要提前做的.md", "trip/决定.md", "data/places.yaml", "data/images.yaml", "data/offers.yaml", "data/bookings.yaml"]
 
 
 def check_quote_ids(root, problems):

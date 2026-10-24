@@ -41,6 +41,17 @@ OFFER_KINDS = ["证件", "交通票", "城市卡", "联票", "折扣", "买票�
 OFFER_FOR_BASE = ["4 人", "队友"]   # 再加地点库里 who 出现过的人名（人名不写进代码：代码会原样发布到公开站）
 OFFER_VERDICTS = ["推荐", "看情况", "不划算", "已有"]
 OFFER_REQUIRED = ["id", "name", "scope", "kind", "what", "saves", "for", "verdict", "why", "price", "how", "source", "checked"]
+# 买票与预约（data/bookings.yaml，docs/格式.md 第 9 节）
+BOOKING_KINDS = ["车票", "门票", "寄存", "住处", "订位", "联系"]
+BOOKING_STATUS = ["待买", "待订", "待联系", "已买", "已订", "已联系", "现场买", "不用了"]
+BOOKING_OPEN = ["待买", "待订", "待联系"]        # 还没办的
+BOOKING_DONE = ["已买", "已订", "已联系", "不用了"]  # 办完或不用办的
+BOOKING_WHY = ["会涨价", "会卖完", "只凭预约", "要提前约", "不急，现场买"]
+BOOKING_URGENT = ["会涨价", "会卖完", "只凭预约", "要提前约"]
+BOOKING_REQUIRED = ["id", "day", "kind", "what", "who", "status"]
+BOOKING_TEXT = ["what", "who", "time", "deadline", "price", "if_missed", "notes", "source", "checked"]
+BOOKING_CONTACT_KEYS = ["name", "tel", "email", "web", "lang"]
+MMDD = re.compile(r"^(\d{2})-(\d{2})$")
 PLAN_TYPES = ["玩", "路上", "吃", "机动", "硬节点", "预留"]
 PLAN_SURE = ["定", "估", "不定"]
 PLAN_WHO_BASE = ["全组", "队友"]    # 同上，再加地点库里 who 出现过的人名
@@ -588,8 +599,12 @@ def load_offers(root, problems, places=None):
             problems.add("data/offers.yaml", ln, f"id “{oid}” 重复（第一次在第 {seen[oid]} 行）")
             continue
         seen[oid] = ln
-        for k in ("name", "what", "saves", "why", "price", "how", "source", "checked"):
+        for k in ("name", "what", "saves", "why", "price", "how", "source", "checked", "buy_when"):
             _text_field(o, k, where, ln, problems, "data/offers.yaml")
+        dv = o.get("days")
+        if dv is not None and not (isinstance(dv, list) and all(isinstance(x, str) and MMDD.match(x) for x in dv)):
+            problems.add("data/offers.yaml", ln, f"{where} 的 days 要写成带引号的 MM-DD 列表，如 [\"10-27\", \"10-30\"]")
+            o.pop("days")
         for k, allowed in enums.items():
             v = o.get(k)
             if v is not None and v not in allowed:
@@ -609,6 +624,113 @@ def load_offers(root, problems, places=None):
                 problems.add("data/offers.yaml", ln, f"{where} 的 links 里有不是 http(s):// 开头的网址")
             o["links"] = good
         out.append(o)
+    return out
+
+
+def booking_status_base(status):
+    """“待买（10-24 在买）”→“待买”：状态可以带括号备注，判断时只看括号前。"""
+    return re.split(r"[（(]", str(status or ""), maxsplit=1)[0].strip()
+
+
+def load_bookings(root, problems, places=None):
+    """data/bookings.yaml（要买、要订、要联系的事）→ 列表。文件不存在是正常的，返回空列表、不报错。"""
+    path = root / "data" / "bookings.yaml"
+    if not path.exists():
+        return []
+    text = path.read_text(encoding="utf-8")
+    F = "data/bookings.yaml"
+    try:
+        data = _load(text) or []
+    except yaml.YAMLError as e:
+        mark = getattr(e, "problem_mark", None)
+        problems.add(F, mark.line + 1 if mark else 0, f"YAML 读不了：{getattr(e, 'problem', e)}")
+        return []
+    if not isinstance(data, list):
+        problems.add(F, 1, "顶层要是列表（每件事一条“- id: …”）")
+        return []
+    starts = [text[:m.start()].count("\n") + 1 for m in re.finditer(r"^- id:", text, re.M)]
+    out, seen = [], {}
+    for i, b in enumerate(data):
+        if not isinstance(b, dict):
+            problems.add(F, 0, f"第 {i + 1} 条不是键值对")
+            continue
+        bid = str(b.get("id", ""))
+        ln = starts[i] if len(starts) == len(data) else 0
+        b["_line"] = ln
+        where = f"买票预约 {bid or '（无 id）'}"
+        if not bid or not ID.match(bid):
+            problems.add(F, ln, f"{where} 的 id 只能用小写字母、数字、连字符")
+            if not bid:
+                continue
+        if bid in seen:
+            problems.add(F, ln, f"id “{bid}” 重复（第一次在第 {seen[bid]} 行）")
+            continue
+        seen[bid] = ln
+        for k in BOOKING_REQUIRED:
+            if b.get(k) in (None, ""):
+                problems.add(F, ln, f"{where} 缺必填字段 {k}")
+        for k in BOOKING_TEXT:
+            _text_field(b, k, where, ln, problems, F)
+        for k in ("day", "due"):
+            v = b.get(k)
+            if v is not None and not (isinstance(v, str) and MMDD.match(v)):
+                problems.add(F, ln, f"{where} 的 {k} “{v}” 要写成带引号的 MM-DD，如 \"10-27\"")
+                b.pop(k)
+        if b.get("kind") is not None and b["kind"] not in BOOKING_KINDS:
+            problems.add(F, ln, f"{where} 的 kind “{b['kind']}” 不是 {' | '.join(BOOKING_KINDS)}")
+            b.pop("kind")
+        if b.get("status") is not None:
+            base = booking_status_base(b["status"])
+            if base not in BOOKING_STATUS:
+                problems.add(F, ln, f"{where} 的 status “{b['status']}” 括号前要是 {' | '.join(BOOKING_STATUS)}")
+                b.pop("status")
+            else:
+                b["status_base"] = base
+        if b.get("why_now") is not None and b["why_now"] not in BOOKING_WHY:
+            problems.add(F, ln, f"{where} 的 why_now “{b['why_now']}” 不是 {' | '.join(BOOKING_WHY)}")
+            b.pop("why_now")
+        if b.get("status_base") in BOOKING_OPEN and not b.get("why_now"):
+            problems.add(F, ln, f"{where} 还没办，要写 why_now（为什么现在要办）")
+        w = b.get("where")
+        if w is not None:
+            ok = isinstance(w, list) and w and all(
+                (isinstance(x, str) and x.strip()) or
+                (isinstance(x, dict) and isinstance(x.get("t"), str) and re.match(r"^https?://\S+$", str(x.get("u", ""))))
+                for x in w)
+            if not ok:
+                problems.add(F, ln, f"{where} 的 where 要写成列表：每项一句文字，或 {{t: 文字, u: https://…}}")
+                b.pop("where")
+        c = b.get("contact")
+        if c is not None:
+            if not (isinstance(c, dict) and isinstance(c.get("name"), str) and c["name"].strip()):
+                problems.add(F, ln, f"{where} 的 contact 要是键值对，且有 name")
+                b.pop("contact")
+            else:
+                for k in c:
+                    if k not in BOOKING_CONTACT_KEYS:
+                        problems.add(F, ln, f"{where} 的 contact 里 “{k}” 不认识（可用 {' | '.join(BOOKING_CONTACT_KEYS)}）")
+                for k in ("tel", "email", "web", "lang"):
+                    if c.get(k) is not None and not (isinstance(c[k], str) and c[k].strip()):
+                        problems.add(F, ln, f"{where} 的 contact.{k} 要写成一句文字")
+                        c.pop(k)
+                if isinstance(c.get("web"), str) and not re.match(r"^https?://\S+$", c["web"]):
+                    problems.add(F, ln, f"{where} 的 contact.web 要 http(s):// 开头")
+                    c.pop("web")
+        if b.get("kind") in ("订位", "联系") and not b.get("contact"):
+            problems.add(F, ln, f"{where} 是 {b['kind']}，要写 contact（至少 name；查不到电话就写 tel: 没查到）")
+        d = b.get("draft")
+        if d is not None:
+            if isinstance(d, str) and d.strip():
+                b["draft"] = [{"lang": "", "text": d.strip()}]
+            elif isinstance(d, list) and d and all(isinstance(x, dict) and isinstance(x.get("text"), str) and x["text"].strip() for x in d):
+                b["draft"] = [{"lang": str(x.get("lang") or ""), "text": x["text"].strip("\n")} for x in d]
+            else:
+                problems.add(F, ln, f"{where} 的 draft 要写成文字，或列表（每项 lang、text）")
+                b.pop("draft")
+        if b.get("place") is not None and places is not None and b["place"] not in places:
+            problems.add(F, ln, f"{where} 的 place “{b['place']}” 不在地点库里")
+            b.pop("place")
+        out.append(b)
     return out
 
 
@@ -752,7 +874,8 @@ def load_all(root):
     problems = Problems()
     places = load_places(root, problems)
     offers = load_offers(root, problems, places)
-    data = {"root": root, "places": places, "images": load_images(root, problems, places), "offers": offers,
+    bookings = load_bookings(root, problems, places)
+    data = {"root": root, "places": places, "images": load_images(root, problems, places), "offers": offers, "bookings": bookings,
             "days": load_days(root, problems), "todo": load_todo(root, problems),
             "decisions": load_decisions(root, problems)}
     offer_ids = {o["id"] for o in offers}
