@@ -452,6 +452,26 @@ class Site:
                   groups=self.bk_groups(citems, "{today} 要做完的（还没做完）"),
                   n_open=len(curgent), n_all=len(citems))
 
+    def build_guide(self):
+        """“车票须知”页：读 trip/车票须知.md（普通 Markdown，二级标题分节），生成 ticket-guide.html。[[id]] 照常变成链接。"""
+        path = self.root / "trip" / "车票须知.md"
+        if not path.exists():
+            return
+        text = path.read_text(encoding="utf-8")
+        title = (re.match(r"#\s+(.+)", text) or [None, "车票须知"])[1].strip()
+        text = re.sub(r"^#\s+.+\n", "", text, count=1)
+
+        def sub(m):
+            pid = m.group(1).strip()
+            p = self.places.get(pid)
+            return f'[{p["name"]}]({self.link(pid)})' if p else pid
+
+        md = markdown.Markdown(extensions=["tables", "sane_lists", "toc"], extension_configs={"toc": {"toc_depth": "2", "slugify": lambda v, sep: re.sub(r"\s+", sep, v.strip())}})  # 中文标题直接当锚点
+        html = md.convert(tripdata.REF.sub(sub, text))
+        html = html.replace("<table>", '<div class="tw"><table>').replace("</table>", "</table></div>")
+        toc = [{"id": t["id"], "name": t["name"]} for t in md.toc_tokens if t["level"] == 2]
+        self.page("guide.html", "ticket-guide.html", title=title, page_id="ticket-guide", gtitle=title, ghtml=Markup(html), toc=toc)
+
     def usage(self, days):
         used = {}
         for d in days:
@@ -523,6 +543,7 @@ class Site:
         self.build_pick()
         self.build_offers()
         self.build_bookings()
+        self.build_guide()
         self.page("decisions.html", "decisions.html", title="决定", page_id="decisions", decisions=self.data["decisions"])
         credits = []
         for pid, img in sorted(self.images.items()):

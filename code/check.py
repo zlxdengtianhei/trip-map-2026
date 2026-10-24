@@ -26,7 +26,7 @@ import tripdata  # noqa: E402
 
 # 新系统原话 id 是 U-MMDD-HHMMSS-<会话前 4 位>（10-20 04:1x 之前的没有后缀）；旧系统的 U-<8 位十六进制>-<6 位> 不在本仓，不查。
 UID = re.compile(r"\bU-\d{4}-\d{6}(?:-[0-9a-z]{4})?\b")
-SITE_SOURCES = ["trip/days/*.md", "trip/要提前做的.md", "trip/决定.md", "data/places.yaml", "data/images.yaml", "data/offers.yaml", "data/bookings.yaml"]
+SITE_SOURCES = ["trip/days/*.md", "trip/要提前做的.md", "trip/决定.md", "data/places.yaml", "data/images.yaml", "data/offers.yaml", "data/bookings.yaml", "trip/车票须知.md"]
 
 
 def check_quote_ids(root, problems):

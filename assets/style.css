@@ -310,3 +310,13 @@ details#o-bad{margin-top:28px}
 @media (max-width:760px){.bkdl{grid-template-columns:1fr;gap:0}.bkdl dt{margin-top:5px}}
 @media print{.bkbar,.cpbtn{display:none}}
 .bkmiss{font-weight:600}.bkmiss.todo{font-weight:400;color:var(--muted);font-style:italic}
+/* 车票须知（ticket-guide.html，来自 trip/车票须知.md） */
+.guide h2{scroll-margin-top:72px}
+.guide h3{font-size:16px}
+.guide table{font-size:14px;min-width:560px}
+.guide ul,.guide ol{padding-left:22px}
+.guide li{margin:3px 0}
+.bkguide{margin:6px 0 0}
+.bkmiss+.bkmiss-link{display:none}
+.guide td,.guide th{overflow-wrap:break-word;min-width:6.5em}
+.guide td:last-child{min-width:12em}
