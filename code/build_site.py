@@ -319,7 +319,7 @@ class Site:
                          "time": f"{b['from']}–{b['to']}" if b["to"] else f"{b['from']} 起",
                          "dur": _dur(b["t"] - b["f"]) if not point else "", "title": tripdata.block_title(b, places),
                          "mode": b["mode"], "src": b["src"], "note": b["note"], "who": tr["who"], "plan": pl["name"],
-                         "place": None, "options": [], "nearby": []}
+                         "place": None, "options": [], "nearby": [], "fare": self.block_fare(b["fare"])}
                     if b["place"]:
                         pv = price_view(places[b["place"]])
                         v["place"] = {"id": b["place"], "name": places[b["place"]]["name"], "href": self.link(b["place"], slug),
@@ -338,6 +338,15 @@ class Site:
             out.append({"name": pl["name"], "note": pl["note"], "tracks": tracks})
         return {"plans": out, "ruler": ruler, "height": height, "ncols": ncols, "min_width": 46 + ncols * TL_COL, "col": TL_COL, "col_max": TL_COL_MAX, "hpx": round(60 * TL_PX, 2),
                 "types": list(TL_TYPE.items()), "sure_legend": [(k, TL_SURE[k][0], TL_SURE[k][1]) for k in tripdata.PLAN_SURE]}
+
+    def block_fare(self, ref):
+        """时间块的 fare 字段 → {text, href}。写的是 fare 行 id 就取那一行的短标签并链到买票页那一条；写的是文字（如“免费”）就原样显示。"""
+        if not ref:
+            return None
+        row = self.fares.get(ref)
+        if row:
+            return {"text": tripdata.fare_label(row), "href": f"bookings.html#b-{row['booking']}", "free": False}
+        return {"text": ref, "href": "", "free": True}
 
     def plan_brief(self, d):
         """首页用：第一套方案每条轨道的“时刻 地点”清单（玩、吃、硬节点；路上和预留不列）。"""
@@ -419,6 +428,49 @@ class Site:
             e["n"] += 1
             e["open"] += 1 if b["is_open"] else 0
 
+    def prepare_fares(self):
+        """交通花费：把 bookings.yaml 的 fare 行按天整理成页面要用的样子（天页的“这天的交通花费”、买票页的汇总表）。
+        数据只在 bookings.yaml 一处；这里只做汇总和换成显示用的文字。"""
+        self.fares = tripdata.fare_index(self.bookings)
+        people = tripdata.fare_people(self.places)
+        stat = {b["id"]: b for b in self.bookings}
+        self.fare_days = {}
+        for r in tripdata.fare_rows(self.bookings):
+            self.fare_days.setdefault(r["day"], []).append(r)
+
+        def view(r):
+            b = stat.get(r["booking"]) or {}
+            return {"seg": r["seg"], "ticket": r["ticket"], "who": r["who"], "n": r.get("n") or "", "pp": tripdata.fare_pp_text(r),
+                    "has_pp": r.get("pp") is not None and not r.get("ref"), "alt": r.get("alt") or "", "ref": bool(r.get("ref")),
+                    "note": r.get("note") or "", "booking": r["booking"], "what": b.get("what") or "",
+                    "status": "已含" if r.get("ref") else (r.get("status") or ""),
+                    "scls": "st-done" if r.get("ref") else BK_STATUS_CLS.get(r.get("status_base"), "st-skip")}
+
+        out = {}
+        for mmdd, rows in self.fare_days.items():
+            main = sorted((r for r in rows if not r.get("alt")), key=lambda r: bool(r.get("ref")))   # 含在别的票里的排后面（稳定排序，其余保持文件顺序）
+            alts = [r for r in rows if r.get("alt")]
+            totals = []
+            for who in people:
+                t = tripdata.fare_totals(rows, who)
+                if any(r for r in rows if tripdata.fare_applies(r, who)):
+                    totals.append({"who": who, "text": tripdata.fare_total_text(t), "est": t["est"], "unknown": t["unknown"]})
+            out[mmdd] = {"main": [view(r) for r in main], "alts": [view(r) for r in alts], "totals": totals}
+        self.fare_view = out
+        # 买票页汇总：每天每人的合计 + 全程已知部分
+        days = {d["date_iso"][5:]: d for d in self.days}
+        rows = []
+        for mmdd in sorted(self.fare_days):
+            d = days.get(mmdd)
+            fv = out[mmdd]
+            rows.append({"mmdd": mmdd, "label": f"{mmdd} {tripdata.weekday(datetime(2026, int(mmdd[:2]), int(mmdd[3:])).date())}",
+                         "slug": d["slug"] if d else "", "totals": {t["who"]: t for t in fv["totals"]}})
+        grand = []
+        for who in people:
+            t = tripdata.fare_totals([r for rs in self.fare_days.values() for r in rs], who)
+            grand.append({"who": who, "text": tripdata.fare_total_text(t), "est": t["est"], "unknown": t["unknown"]})
+        self.fare_sum = {"people": people, "rows": rows, "grand": grand}
+
     def bk_sorted(self, items):
         return sorted(items, key=lambda b: (BK_KIND_ORDER.get(b.get("kind"), 9), b.get("time") or "", b["id"]))
 
@@ -443,7 +495,7 @@ class Site:
         items = self.bookings
         urgent = sorted([b for b in items if b["urgent"]], key=lambda b: (b.get("due") or "99-99", BK_KIND_ORDER.get(b.get("kind"), 9), b["id"]))
         kinds = [(k, sum(1 for b in items if b.get("kind") == k)) for k in tripdata.BOOKING_KINDS]
-        self.page("bookings.html", "bookings.html", title="买票与预约", page_id="bookings", urgent=urgent,
+        self.page("bookings.html", "bookings.html", title="买票与预约", page_id="bookings", urgent=urgent, fsum=self.fare_sum,
                   groups=self.bk_groups(items, "{today} 要做完的（还没做完）"), kinds=[x for x in kinds if x[1]],
                   n_open=sum(1 for b in items if b["is_open"]), n_all=len(items))
         citems = [b for b in items if b.get("kind") in CONTACT_KINDS]
@@ -500,6 +552,7 @@ class Site:
         self.days = days = self.prepare_days()
         self.nav_areas = [{"name": n, "slug": s} for n, s in AREA_SLUG.items()]
         self.prepare_bookings()   # 天页与首页要用它的计数，所以先于它们
+        self.prepare_fares()      # 时间轴块的票价标签、天页的交通花费表要用它
         for i, d in enumerate(days):
             d["html"], d["lead"] = self.render_day_text(d, d["slug"])
             d["extra"] = [n for n in d["order"] if n not in tripdata.SECTIONS]
@@ -513,6 +566,8 @@ class Site:
             d["near"] = self.day_near(d, d["map"]["points"]) if d["map"]["points"] else []
             d["map_json"] = self.map_json(d["map"]["points"], d["near"])
             d["tl"] = self.timeline(d)
+            d["fare"] = self.fare_view.get(d["date_iso"][5:])
+            d["fare_note"] = " ".join(str(d["meta"].get("fare_note") or "").split())
             d["brief"] = self.plan_brief(d)
             self.page("day.html", f"{d['slug']}.html", title=d["meta"].get("title") or d["short"], page_id=d["slug"],
                       day=d, maps=bool(d["map"]["points"]), prev=days[i - 1] if i else None,

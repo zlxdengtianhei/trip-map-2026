@@ -7,6 +7,7 @@ check.py 与 build_site.py 都从这里读；读到不合格式的地方记进 p
   python3 tools/tripdata.py near <地点id 或 纬度,经度> [--km 5] [--kind 美食]   # 附近的地点（≤2.5 km 步行可达）
   python3 tools/tripdata.py find <词> [<词> …]                                  # 搜 name、name_local、reason、notes
   python3 tools/tripdata.py day <MM-DD>                                         # 按时间轴打印一天（没有时间轴就打印推荐的一套）
+  python3 tools/tripdata.py fares <MM-DD>                                       # 这天的交通花费（bookings.yaml 的 fare 行汇总）
 """
 import argparse
 import math
@@ -51,6 +52,11 @@ BOOKING_URGENT = ["会涨价", "会卖完", "只凭预约", "要提前约"]
 BOOKING_REQUIRED = ["id", "day", "kind", "what", "who", "status"]
 BOOKING_TEXT = ["what", "who", "time", "deadline", "price", "if_missed", "notes", "source", "checked"]
 BOOKING_CONTACT_KEYS = ["name", "tel", "email", "web", "lang"]
+# 交通花费（bookings.yaml 条目里的 fare 行，docs/格式.md 第 9 节）；时间块的 fare 字段指向这些行的 id
+FARE_KEYS = ["id", "seg", "ticket", "who", "n", "pp", "pp_hi", "cur", "est", "day", "ref", "alt", "short", "note"]
+FARE_CUR = ["€", "Ft"]
+FT_PER_EUR = 390       # 折算用：BKK 24 小时票 2,750 Ft 官网标 ≈ €7.05（优惠页同此比率）；只在合计后面写“约”
+FARE_ID = re.compile(r"^f-[a-z0-9]+(?:-[a-z0-9]+)*$")
 MMDD = re.compile(r"^(\d{2})-(\d{2})$")
 PLAN_TYPES = ["玩", "路上", "吃", "机动", "硬节点", "预留"]
 PLAN_SURE = ["定", "估", "不定"]
@@ -730,7 +736,82 @@ def load_bookings(root, problems, places=None):
         if b.get("place") is not None and places is not None and b["place"] not in places:
             problems.add(F, ln, f"{where} 的 place “{b['place']}” 不在地点库里")
             b.pop("place")
+        if b.get("fare") is not None:
+            b["fare"] = _check_fare(b, where, ln, PLAN_WHO_BASE[:1] + people(places or {}) + PLAN_WHO_BASE[1:], problems, F)
         out.append(b)
+    ids = {b["id"] for b in out}
+    seen_fare = {}
+    for b in out:
+        for r in b.get("fare") or []:
+            if r.get("id"):
+                if r["id"] in seen_fare:
+                    problems.add(F, b["_line"], f"fare 的 id “{r['id']}” 重复（也在 {seen_fare[r['id']]}）")
+                    r.pop("id")
+                else:
+                    seen_fare[r["id"]] = b["id"]
+            if r.get("ref") and r["ref"] not in ids:
+                problems.add(F, b["_line"], f"买票预约 {b['id']} 的 fare ref “{r['ref']}” 不是 bookings.yaml 里的 id")
+                r.pop("ref")
+    return out
+
+
+def _is_num(x):
+    return isinstance(x, (int, float)) and not isinstance(x, bool) and x >= 0
+
+
+def _check_fare(b, where, ln, who_ok, problems, F):
+    """条目里的 fare 行 → 规范的列表。写错的行报出来并整行去掉。每行带上所属条目 id、哪天、状态。"""
+    rows = b["fare"]
+    if not isinstance(rows, list) or not rows:
+        problems.add(F, ln, f"{where} 的 fare 要写成列表（每行一段路：seg、ticket、who、pp、cur）")
+        return []
+    out = []
+    for i, r in enumerate(rows, 1):
+        w = f"{where} 的 fare 第 {i} 行"
+        if not isinstance(r, dict):
+            problems.add(F, ln, f"{w}要写成键值对")
+            continue
+        for k in r:
+            if k not in FARE_KEYS:
+                problems.add(F, ln, f"{w}里 “{k}” 不认识（可用 {' | '.join(FARE_KEYS)}）")
+        ok = True
+        for k in ("seg", "ticket"):
+            if r.get(k) in (None, ""):
+                problems.add(F, ln, f"{w}缺必填字段 {k}")
+                ok = False
+            elif not _text_field(r, k, w, ln, problems, F):
+                ok = False
+        if r.get("who") not in who_ok:
+            problems.add(F, ln, f"{w}的 who “{r.get('who')}” 不是 {' | '.join(who_ok)}")
+            ok = False
+        for k in ("n", "alt", "short", "note"):
+            if r.get(k) is not None:
+                _text_field(r, k, w, ln, problems, F)
+        if r.get("id") is not None and not (isinstance(r["id"], str) and FARE_ID.match(r["id"])):
+            problems.add(F, ln, f"{w}的 id “{r['id']}” 要以 f- 开头，只用小写字母、数字、连字符")
+            r.pop("id")
+        if r.get("day") is not None and not (isinstance(r["day"], str) and MMDD.match(r["day"])):
+            problems.add(F, ln, f"{w}的 day “{r['day']}” 要写成带引号的 MM-DD")
+            r.pop("day")
+        if r.get("ref") is not None and not isinstance(r["ref"], str):
+            problems.add(F, ln, f"{w}的 ref 要写成 bookings.yaml 里的条目 id")
+            r.pop("ref")
+        if r.get("pp") is not None and not _is_num(r["pp"]):
+            problems.add(F, ln, f"{w}的 pp 要写成不小于 0 的数字（不知道就省略），现在是 “{r['pp']}”")
+            r.pop("pp")
+        if r.get("pp_hi") is not None and not (_is_num(r["pp_hi"]) and r.get("pp") is not None and r["pp_hi"] >= r["pp"]):
+            problems.add(F, ln, f"{w}的 pp_hi 要是不小于 pp 的数字，且要先写 pp")
+            r.pop("pp_hi")
+        if r.get("pp") is not None and r.get("cur") not in FARE_CUR:
+            problems.add(F, ln, f"{w}写了 pp，cur 要是 {' | '.join(FARE_CUR)}，现在是 “{r.get('cur')}”")
+            ok = False
+        if r.get("est") is not None and not isinstance(r["est"], bool):
+            problems.add(F, ln, f"{w}的 est 要写 true 或 false")
+            r.pop("est")
+        if not ok:
+            continue
+        out.append({**r, "booking": b["id"], "day": r.get("day") or b.get("day") or "", "est": bool(r.get("est")),
+                    "status_base": b.get("status_base") or "", "status": b.get("status") or ""})
     return out
 
 
@@ -778,8 +859,8 @@ def _plan_block(b, where, rel, places, problems):
     elif sure is None:
         problems.add(rel, 1, f"{where} 缺 sure（{' | '.join(PLAN_SURE)}）；网站先显示成“未标”")
     out = {"from": hhmm(f), "to": hhmm(t) if t is not None else None, "f": f, "t": t, "type": typ, "sure": sure,
-           "place": None, "options": [], "text": "", "mode": "", "src": "", "note": ""}
-    for k in ("text", "mode", "src", "note"):
+           "place": None, "options": [], "text": "", "mode": "", "src": "", "note": "", "fare": ""}
+    for k in ("text", "mode", "src", "note", "fare"):
         v = b.get(k)
         if v is None:
             continue
@@ -787,6 +868,9 @@ def _plan_block(b, where, rel, places, problems):
             out[k] = " ".join(v.split())
         else:
             problems.add(rel, 1, f"{where} 的 {k} 要写成一句文字，现在是 “{v}”")
+    if out["fare"] and typ not in ("路上", "硬节点"):
+        problems.add(rel, 1, f"{where} 的 fare 只给“路上”或“硬节点”块用（这块是 {typ}）")
+        out["fare"] = ""
     pid = b.get("place")
     if pid is not None:
         if not isinstance(pid, str) or pid not in places:
@@ -903,11 +987,120 @@ def load_all(root):
             for pid in plan_places(d["plans"], first_only=True):
                 if pid not in d["recommended"]:
                     d["recommended"].append(pid)
+    fares = fare_index(bookings)
+    for d in data["days"]:
+        for pl in d["plans"]:
+            for tr in pl["tracks"]:
+                for b in tr["blocks"]:
+                    f = b["fare"]
+                    if f and FARE_ID.match(f) and f not in fares:
+                        problems.add(d["file"], 1, f"方案“{pl['name']}”{b['from']} 的块里 fare “{f}” 不是 data/bookings.yaml 里 fare 行的 id（写成文字就别以 f- 开头）")
+                        b["fare"] = ""
     return data, problems
 
 
 def weekday(d):
     return "周" + WEEK[d.weekday()]
+
+
+# ===================== 交通花费：从 bookings.yaml 的 fare 行汇总 =====================
+# 网站天页、买票页和命令行共用。数据只写在 bookings.yaml 一处，天页不另写价。
+
+def fare_rows(bookings):
+    """所有条目的 fare 行（已规范），按条目顺序。每行有 booking（条目 id）、day（MM-DD）、status_base。"""
+    return [r for b in bookings for r in (b.get("fare") or [])]
+
+
+def fare_index(bookings):
+    """fare 行的 id → 行。"""
+    return {r["id"]: r for r in fare_rows(bookings) if r.get("id")}
+
+
+def fare_applies(row, person):
+    return row["who"] == "全组" or row["who"] == person
+
+
+def fare_money(x, cur):
+    return f"€{x:,.2f}" if cur == "€" else f"{x:,.0f} Ft"
+
+
+def fare_pp_text(r):
+    """一行每人多少钱：“€13.25”“€3.00–3.50（估）”“2,750 Ft”“价没查到”；含在别的票里写“已含”。"""
+    if r.get("ref"):
+        return "已含"
+    if r.get("pp") is None:
+        return "价以订单为准或没查到"
+    lo, hi = r["pp"], r.get("pp_hi")
+    if hi is None or hi == lo:
+        t = fare_money(lo, r["cur"])
+    elif r["cur"] == "€":
+        t = f"€{lo:,.2f}–{hi:,.2f}"
+    else:
+        t = f"{lo:,.0f}–{hi:,.0f} Ft"
+    return t + ("（估）" if r.get("est") else "")
+
+
+def fare_label(r):
+    """时间轴块上的短标签：优先 short，否则“票种 + 每人价”。"""
+    if r.get("short"):
+        return r["short"]
+    if r.get("ref"):
+        return "含在「" + r["ticket"] + "」里"
+    return f"{r['ticket']} {fare_pp_text(r)}"
+
+
+def fare_totals(rows, person):
+    """某个人在这些行里要花的钱：{'€': (低, 高), 'Ft': (低, 高), 'unknown': 没有价的行数, 'est': 有没有估或区间}。
+    不算：备选买法（alt）、含在别的票里的行（ref）。"""
+    tot = {"€": [0.0, 0.0], "Ft": [0.0, 0.0], "unknown": 0, "est": False}
+    for r in rows:
+        if r.get("alt") or r.get("ref") or not fare_applies(r, person):
+            continue
+        if r.get("pp") is None:
+            tot["unknown"] += 1
+            continue
+        tot[r["cur"]][0] += r["pp"]
+        tot[r["cur"]][1] += r.get("pp_hi") if r.get("pp_hi") is not None else r["pp"]
+        tot["est"] = tot["est"] or r["est"] or r.get("pp_hi") not in (None, r["pp"])
+    return {"€": tuple(tot["€"]), "Ft": tuple(tot["Ft"]), "unknown": tot["unknown"], "est": tot["est"]}
+
+
+def fare_total_text(tot):
+    """合计写成一句：“€25.20 + 850 Ft（约 €27.38）”。没有任何已知的钱写“没有已知的数额”。"""
+    parts = []
+    (elo, ehi), (flo, fhi) = tot["€"], tot["Ft"]
+    if ehi > 0:
+        parts.append(f"€{elo:,.2f}" if elo == ehi else f"€{elo:,.2f}–{ehi:,.2f}")
+    if fhi > 0:
+        parts.append(f"{flo:,.0f} Ft" if flo == fhi else f"{flo:,.0f}–{fhi:,.0f} Ft")
+    if not parts:
+        return "没有已知的数额"
+    t = " + ".join(parts)
+    if fhi > 0:
+        lo, hi = elo + flo / FT_PER_EUR, ehi + fhi / FT_PER_EUR
+        t += f"（约 €{lo:,.2f}）" if abs(hi - lo) < 0.005 else f"（约 €{lo:,.2f}–{hi:,.2f}）"
+    return t
+
+
+def fare_people(places):
+    """交通花费要分开写的人：地点库里出现过的人名 + 队友。"""
+    return people(places) + ["队友"]
+
+
+def fare_day_text(data, mmdd):
+    """命令行用：某天的交通花费表。"""
+    rows = [r for r in fare_rows(data["bookings"]) if r["day"] == mmdd]
+    if not rows:
+        return f"{mmdd} 没有 fare 行"
+    out = [f"{mmdd} 的交通花费（每人）"]
+    for r in rows:
+        tag = "［备选］" if r.get("alt") else ""
+        out.append(f"- {tag}{r['seg']} ｜ {r['ticket']} ｜ {r['who']}{'｜' + r['n'] if r.get('n') else ''} ｜ {fare_pp_text(r)} ｜ {r['status']}"
+                   + (f" ｜ 含在 {r['ref']}" if r.get("ref") else "") + (f" ｜ id {r['id']}" if r.get("id") else ""))
+    for who in fare_people(data["places"]):
+        t = fare_totals(rows, who)
+        out.append(f"合计 {who}：{fare_total_text(t)}" + ("（含估或区间）" if t["est"] else "") + (f"；另有 {t['unknown']} 项没有价，未计入" if t["unknown"] else ""))
+    return "\n".join(out)
 
 
 # ===================== 查询：附近、搜索、按时间轴看一天 =====================
@@ -1109,6 +1302,8 @@ def main(argv=None):
     pf.add_argument("words", nargs="+")
     pd = sub.add_parser("day", help="按时间轴打印一天；没有时间轴就打印推荐的一套")
     pd.add_argument("date", help="MM-DD，如 10-26")
+    pc = sub.add_parser("fares", help="某天的交通花费（从 data/bookings.yaml 的 fare 行汇总）")
+    pc.add_argument("date", help="MM-DD，如 10-28")
     a = ap.parse_args(argv)
     data, problems = load_all(Path(a.root).resolve())
     places = data["places"]
@@ -1128,6 +1323,9 @@ def main(argv=None):
         for r in res:
             print(f"{r['kind'] or '':<4} {r['name']} [{r['id']}]  命中：{'、'.join(r['where'])}")
         print(f"（共 {len(res)} 个）")
+        return 0
+    if a.cmd == "fares":
+        print(fare_day_text(data, a.date))
         return 0
     d = day_by_date(data, a.date)
     if not d:

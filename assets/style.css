@@ -320,3 +320,26 @@ details#o-bad{margin-top:28px}
 .bkmiss+.bkmiss-link{display:none}
 .guide td,.guide th{overflow-wrap:break-word;min-width:6.5em}
 .guide td:last-child{min-width:12em}
+
+/* ===== 交通花费：天页的“这天的交通花费”、买票页汇总、时间轴块上的票价 ===== */
+.blk .bf{display:block;font-size:11px;font-weight:600;color:#1f4fa8}
+.blk .bf.free{color:#555;font-weight:400}
+.blk.sm .bf{display:inline;margin-left:4px}
+.blk.pt .bf{color:#fff}
+.frlist{list-style:none;margin:6px 0 0;padding:0}
+.frlist li.fr{padding:8px 0;border-top:1px dashed var(--line)}
+.frlist li.fr:first-child{border-top:0}
+.frtop{display:flex;flex-wrap:wrap;justify-content:space-between;gap:2px 12px;align-items:baseline}
+.frseg{font-weight:600;min-width:0;flex:1 1 220px}
+.frpp{font-weight:700;font-variant-numeric:tabular-nums;white-space:nowrap}
+.frpp.none{font-weight:400;color:var(--muted);white-space:normal}
+.frsub{font-size:13px;color:var(--muted);margin-top:2px}
+.frnote{font-size:13px;margin-top:2px;color:#444}
+.frlist li.fr.alt{opacity:.85}
+.frlist li.fr.inc .frpp{font-weight:400;color:var(--muted)}
+.frsum{background:#f1f5ff;border-left:4px solid var(--acc);border-radius:6px;padding:8px 12px;margin:8px 0}
+.frtot{margin-top:3px}
+.frwho{display:inline-block;min-width:3.4em;font-weight:700}
+.frsumt td,.frsumt th{padding:6px 8px;border-bottom:1px solid var(--line);text-align:left;vertical-align:top}
+.frsumt tr.grand td{background:#f1f5ff}
+
