@@ -11,6 +11,7 @@
 数据不合格式时照常生成能生成的部分；格式问题用 check.py 查。依赖：jinja2、pyyaml、markdown（见 requirements.txt）。
 """
 import argparse
+import hashlib
 import json
 import re
 import shutil
@@ -146,6 +147,11 @@ def linkify(text):
 def _dur(m):
     return f"{m // 60} h {m % 60:02d}" if m >= 60 and m % 60 else (f"{m // 60} h" if m >= 60 else f"{m} 分")
 
+
+
+def todo_id(t):
+    """“要提前做的”一行的稳定 id：按“事项”文字取哈希（事项改了字，本机的做完标记就失效，按没做完显示）。"""
+    return "todo-" + hashlib.sha1(str(t.get("事项") or "").encode("utf-8")).hexdigest()[:8]
 
 class Site:
     def __init__(self, root, out):
@@ -538,8 +544,15 @@ class Site:
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(privacy.redact(html, self.policy), encoding="utf-8")
 
+    def open_ids(self):
+        """还没办的事的 id（买票预约里没办的 + 要提前做的里待办、进行中的），给页面上的“✓ 做完”按钮用：
+        本机标过做完、但仓里已经改成办完的，页面据此自动清掉那条本机标记。"""
+        ids = [b["id"] for b in self.bookings if b.get("is_open")]
+        ids += [todo_id(t) for t in self.data["todo"] if t.get("状态") in ("待办", "进行中")]
+        return ids
+
     def page(self, tpl, rel, **ctx):
-        base = {"generated": datetime.now(TZ).strftime("%m-%d %H:%M"), "nav_days": self.days,
+        base = {"open_ids": self.open_ids(), "generated": datetime.now(TZ).strftime("%m-%d %H:%M"), "nav_days": self.days,
                 "nav_areas": self.nav_areas, "places": self.places, "images": self.images, "maps": False,
                 "offers": self.offers, "offers_by_id": self.offers_by_id, "bk_by_day": self.bk_by_day,
                 "bk_open": sum(1 for b in self.bookings if b.get("is_open")), "up": "../" * rel.count("/")}
@@ -574,6 +587,7 @@ class Site:
                       next=days[i + 1] if i + 1 < len(days) else None)
         todo_open = [t for t in self.data["todo"] if t.get("状态") in ("待办", "进行中")]
         for t in todo_open:  # 截止里第一个“月-日”当作截止日（首页 JS 据此标“今天截止”“已过截止”）
+            t["tid"] = todo_id(t)
             m = re.search(r"(\d{1,2})-(\d{1,2})", str(t.get("截止") or ""))
             t["due_iso"] = f"2026-{int(m.group(1)):02d}-{int(m.group(2)):02d}" if m else ""
         pick_n = sum(1 for p in self.places.values() if p.get("area") in AREA_SLUG and pickable(p))

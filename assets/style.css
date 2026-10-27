@@ -343,3 +343,16 @@ details#o-bad{margin-top:28px}
 .frsumt td,.frsumt th{padding:6px 8px;border-bottom:1px solid var(--line);text-align:left;vertical-align:top}
 .frsumt tr.grand td{background:#f1f5ff}
 
+
+/* “✓ 做完”按钮与本机做完标记（site.js initDone） */
+.donebtn{font:inherit;font-size:13px;line-height:1;min-height:32px;padding:0 10px;margin-left:4px;border:1px solid var(--ok);border-radius:16px;background:#fff;color:var(--ok);cursor:pointer;vertical-align:middle;white-space:nowrap}
+.donebtn.on{border-color:var(--line);background:#f0f0ee;color:var(--muted)}
+[data-done-id].udone{opacity:.55}
+li.udone::before,article.udone::before{content:'✓ 已做完（本机） ';color:var(--ok);font-weight:700}
+details.bk.udone>summary b,li.udone>a{text-decoration:line-through}
+#donebar{position:fixed;left:0;right:0;bottom:0;z-index:1100;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px 12px;background:#fff;border-top:1px solid var(--line);box-shadow:0 -2px 8px rgba(0,0,0,.06);padding:8px 16px calc(8px + env(safe-area-inset-bottom));font-size:14px}
+#donebar[hidden]{display:none}
+#donebar .dbtxt{flex:1 1 220px}
+#donebar textarea{flex:1 1 100%;width:100%;font:inherit;font-size:13px}
+body.hasdonebar{padding-bottom:96px}
+@media print{.donebtn,#donebar{display:none}}

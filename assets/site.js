@@ -318,5 +318,73 @@
     });
     window.tripPickText=pickText;  // 便于在浏览器控制台里查看将要复制的文字
   }
-  document.addEventListener('DOMContentLoaded',function(){initMaps();initLightbox();initTimeline();initJump();initToday();initDue();initFold();initPick();tick();setInterval(tick,30000);});
+
+  // “✓ 做完”：首页“要提前做的”、买票与预约、要联系的人里还没办的事，点一下在本机标成做完（存 localStorage；
+  // 读写失败也照常能用，只是不记住）。本机标记只在这台手机上；底部条“复制给 agent”把标过的整理成一段话，
+  // agent 改了仓里的状态，所有设备才一样。仓里已经改成办完的（不在 #openids 里），本机标记自动清掉。
+  var DONE_KEY='trip2026-done-v1';
+  function readDone(){try{var s=localStorage.getItem(DONE_KEY);var o=s?JSON.parse(s):{};return o&&typeof o==='object'?o:{};}catch(e){return {};}}
+  function saveDone(d){try{localStorage.setItem(DONE_KEY,JSON.stringify(d));}catch(e){}}
+  function viennaStamp(){
+    try{var p={};new Intl.DateTimeFormat('en-GB',{timeZone:'Europe/Vienna',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',hourCycle:'h23'})
+      .formatToParts(new Date()).forEach(function(x){p[x.type]=x.value;});return p.month+'-'+p.day+' '+p.hour+':'+p.minute;}catch(e){return '';}
+  }
+  function initDone(){
+    if(!document.querySelector('.donebtn[data-done]'))return;
+    var st=readDone(),open=null;
+    try{var oe=document.getElementById('openids');open=oe?JSON.parse(oe.textContent):null;}catch(e){}
+    if(open){var keep={},n0=Object.keys(st).length;open.forEach(function(id){if(st[id])keep[id]=st[id];});st=keep;if(Object.keys(st).length!==n0)saveDone(st);}
+    function text(){
+      return '我在网站上把这些标成做完了，请把仓里的状态改掉：\n'+Object.keys(st).map(function(id){
+        var x=st[id]||{};return '- '+(x.label||id)+'（'+id+(x.t?'，'+x.t+' 标':'')+'）';}).join('\n');
+    }
+    function showText(t){
+      var bar=document.getElementById('donebar'),ta=bar.querySelector('textarea');
+      if(!ta){ta=document.createElement('textarea');ta.readOnly=true;ta.rows=4;bar.appendChild(ta);}
+      ta.value=t;ta.hidden=false;ta.focus();ta.select();
+      bar.querySelector('.dbtxt').textContent='没能自动复制：长按下面的文字全选，复制后贴给 agent。';
+    }
+    function copy(){
+      var t=text(),b=document.getElementById('dbcopy');
+      function ok(){b.textContent='已复制 ✓';setTimeout(function(){b.textContent='复制给 agent';},1800);}
+      try{
+        if(!navigator.clipboard||!window.isSecureContext)throw new Error('no clipboard');
+        navigator.clipboard.writeText(t).then(ok,function(){showText(t);});
+      }catch(e){showText(t);}
+    }
+    function bar(){
+      var ids=Object.keys(st),b=document.getElementById('donebar');
+      if(!ids.length){if(b)b.hidden=true;document.body.classList.remove('hasdonebar');return;}
+      if(!b){
+        b=document.createElement('div');b.id='donebar';b.setAttribute('role','region');b.setAttribute('aria-label','做完的标记');
+        b.innerHTML='<span class="dbtxt"></span><button type="button" class="btn primary" id="dbcopy">复制给 agent</button>';
+        document.body.appendChild(b);b.querySelector('#dbcopy').addEventListener('click',copy);
+      }
+      b.hidden=false;document.body.classList.add('hasdonebar');
+      var ta=b.querySelector('textarea');if(ta)ta.hidden=true;
+      b.querySelector('.dbtxt').textContent='本机标了 '+ids.length+' 件做完（只在这台手机上）。复制给 agent，它改了仓里，别的手机也会显示。';
+    }
+    function apply(){
+      document.querySelectorAll('[data-done-id]').forEach(function(n){
+        var on=!!st[n.dataset.doneId];n.classList.toggle('udone',on);
+        if(on&&n.tagName==='DETAILS')n.open=false;
+      });
+      document.querySelectorAll('.donebtn[data-done]').forEach(function(b){
+        var on=!!st[b.dataset.done];b.textContent=on?'↺ 撤销':'✓ 做完';b.classList.toggle('on',on);
+        b.setAttribute('aria-pressed',on?'true':'false');
+      });
+      bar();
+    }
+    // 捕获阶段处理：按钮在 <summary> 里时，阻止默认动作，卡片不跟着展开收起
+    document.addEventListener('click',function(e){
+      var b=e.target.closest('.donebtn[data-done]');if(!b)return;
+      e.preventDefault();e.stopPropagation();
+      var id=b.dataset.done;
+      if(st[id])delete st[id];
+      else{var h=b.closest('[data-done-id]');st[id]={t:viennaStamp(),label:h?h.dataset.doneLabel:id};}
+      saveDone(st);apply();
+    },true);
+    apply();
+  }
+  document.addEventListener('DOMContentLoaded',function(){initMaps();initLightbox();initTimeline();initJump();initToday();initDue();initFold();initPick();initDone();tick();setInterval(tick,30000);});
 })();
