@@ -3,10 +3,13 @@
   python3 tools/build_site.py                    # 输出到 _site/
   python3 tools/build_site.py --root DIR --out DIR
 
-页面：首页（每天一张卡片，行程中今天、明天置顶；要提前做的、待你定、每天入口）、每天一页（头里有 plans: 就画时间轴；天页地图可标出 5 km 内
-库里其他地点）、三个地区页、“选地方”页（pick.html：每个地方标想去、不去或不标，想去的选想哪天，复制成一段文字给 agent）、
+页面：首页（每天一张卡片，行程中今天、明天置顶；要提前做的、待你定、每天入口）、每天一页（最前面是“速览”：关键时刻、去的地方
+〔当地名可点击复制、带 Google 地图链接〕、要用的 App；其余按“路上越常回看越靠前”排：分头与汇合、交通、时间轴、这天去的地方、地图、
+说明、按时段的候选、下雨怎么办、明天注意、交通花费；头里有 plans: 就画时间轴；天页地图可标出 5 km 内库里其他地点）、三个地区页、
+“选地方”页（pick.html：每个地方标想去、不去或不标，想去的选想哪天，复制成一段文字给 agent）、
 “票价与优惠”页（offers.html，读 data/offers.yaml，按哪天用得上排）、“买票与预约”页（bookings.html）与“要联系的人”页（contacts.html），
-都读 data/bookings.yaml、决定页、图片来源页、code/（工具代码与 MIT 许可）。
+都读 data/bookings.yaml、两个须知页（ticket-guide.html 读 trip/车票须知.md，apps.html 读 trip/工具与App.md）、决定页、
+图片来源页、code/（工具代码与 MIT 许可）。
 名单里带“=>”的词先替换（如名字显示成“本人”），邮箱打码；扫描仍发现名单词、邮箱、订单号样式就以 1 退出，不能发布。
 数据不合格式时照常生成能生成的部分；格式问题用 check.py 查。依赖：jinja2、pyyaml、markdown（见 requirements.txt）。
 """
@@ -16,8 +19,9 @@ import json
 import re
 import shutil
 import sys
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
+from urllib.parse import quote
 from zoneinfo import ZoneInfo
 
 import markdown
@@ -59,6 +63,11 @@ BK_STATUS_CLS = {"待买": "st-open", "待订": "st-open", "待联系": "st-open
                  "已买": "st-done", "已订": "st-done", "已联系": "st-done", "不用了": "st-skip"}
 BK_KIND_ORDER = {k: i for i, k in enumerate(tripdata.BOOKING_KINDS)}
 CONTACT_KINDS = ("订位", "联系", "住处")
+# 须知页：（trip/ 下的源文件、输出页、页面 id、文件没有一级标题时的页名、页首另给的链接）
+GUIDES = [("trip/车票须知.md", "ticket-guide.html", "ticket-guide", "车票须知",
+           [("买票与预约", "bookings.html"), ("工具与 App 须知", "apps.html")]),
+          ("trip/工具与App.md", "apps.html", "apps", "工具与 App 须知",
+           [("车票须知", "ticket-guide.html"), ("买票与预约", "bookings.html")])]
 
 
 def pickable(p):
@@ -148,6 +157,15 @@ def _dur(m):
     return f"{m // 60} h {m % 60:02d}" if m >= 60 and m % 60 else (f"{m // 60} h" if m >= 60 else f"{m} 分")
 
 
+def gmap_url(p):
+    """地点 → Google 地图搜索链接（搜当地名，没有当地名就搜坐标）。住宿不给（公开站不放住处位置）；什么都没有返回空串。
+    卡片上的“地图 ↗”和天页“速览”都用它。"""
+    if not isinstance(p, dict) or p.get("kind") == "住宿":
+        return ""
+    q = p.get("name_local") or (f"{p['coords'][0]},{p['coords'][1]}" if p.get("coords") else "")
+    return f"https://www.google.com/maps/search/?api=1&query={quote(str(q))}" if q else ""
+
+
 
 def todo_id(t):
     """“要提前做的”一行的稳定 id：按“事项”文字取哈希（事项改了字，本机的做完标记就失效，按没做完显示）。"""
@@ -168,7 +186,7 @@ class Site:
                                trim_blocks=False)
         self.env.filters["linkify"] = linkify
         self.env.globals.update(trail=trail_view, price=price_view, rating=rating_view, gallery=self.gallery,
-                                source_label=tripdata.source_label)
+                                source_label=tripdata.source_label, gmap=gmap_url)
         self.offers = self.data["offers"]
         self.offers_by_id = {o["id"]: o for o in self.offers}
         self.bookings = self.data.get("bookings") or []
@@ -290,9 +308,15 @@ class Site:
 
 
     def timeline(self, d):
-        """天页的 plans → 画时间轴要用的数据（位置按分钟算好）。没有 plans 返回 None，天页回到“推荐的一套”。
+        """天页的 plans → 画时间轴要用的数据。没有 plans 返回 None，天页回到“推荐的一套”。
 
-        每套方案每条轨道一列；块的 top/height 是像素。“吃”块带备选 options 与自动的“附近还有”（库里美食、离前后“玩”块 1.5 km 内，最多 3 个）。
+        版式是一张 CSS 网格：第 1 列是整点刻度，之后每套方案的每条轨道一列；第 1、2 行是方案名和“谁”，之后每一行是相邻两个
+        “时刻点”之间的一段。时刻点 = 所有块的起止时刻 + 整点；只有时刻的硬节点（旗子）在它的时刻后面多占一行（0 分钟），
+        旗子画在这一行里，同一时刻开始的块排在旗子下面。每行至少高“分钟数 × TL_PX”像素（时间比例）；块里的字放不下时
+        把这块跨过的几行撑高：页面上 site.js 的 layoutTimeline 量出每块要多高，把它跨过的各行按同一倍数拉长；没有脚本时
+        CSS 的 minmax(…px, auto) 让浏览器自己撑高。所以字总是完整显示，各轨道仍按同一组时刻点对齐，整点刻度跟着走。
+        以前块是按分钟算好像素高度的绝对定位、overflow:hidden，短块（< 34 px）还强制单行省略，字就被截掉了。
+        “吃”块带备选 options 与自动的“附近还有”（库里美食、离前后“玩”块 1.5 km 内，最多 3 个）。
         """
         plans = d.get("plans")
         if not plans:
@@ -303,28 +327,39 @@ class Site:
         hi = -(-max((b["t"] if b["t"] is not None else b["f"]) for b in allb) // 60) * 60
         if hi - lo < 180:
             hi = lo + 180
-        height = round((hi - lo) * TL_PX)
-        ruler = [{"label": f"{m // 60 % 24:02d}:00", "top": round((m - lo) * TL_PX)} for m in range(lo, hi + 1, 60)]
+        flags = {b["f"] for b in allb if b["t"] is None}
+
+        def start(m):  # 块从哪条线开始：这个时刻有旗子就从旗子下面开始
+            return (m, 1 if m in flags else 0)
+
+        keys = {(m, 0) for m in range(lo, hi + 1, 60)}
+        for b in allb:
+            keys |= {(b["f"], 0), (b["f"], 1)} if b["t"] is None else {start(b["f"]), (b["t"], 0)}
+        keys = sorted(keys)
+        line = {k: n + 3 for n, k in enumerate(keys)}   # 网格线编号（1 起）：第 1、2 行是表头，第 3 条线是最早的时刻点
+        mins = [round((b[0] - a[0]) * TL_PX, 1) for a, b in zip(keys, keys[1:])]
+        # 没有脚本时浏览器按 minmax 撑高（字也不截，但多出来的高度怎么分给跨过的几行由浏览器定）；
+        # 有脚本时 site.js 的 layoutTimeline 量出每块要多高，把它跨过的各行按同一倍数拉长，块里的整点线仍在按时间比例的位置
+        rows = " ".join(f"minmax({m:.1f}px,auto)" for m in mins)
+        ruler = [{"label": f"{m // 60 % 24:02d}:00", "line": line[(m, 0)]} for m in range(lo, hi + 1, 60)]
         slug, ncols = d["slug"], 0
         out = []
         for i, pl in enumerate(plans):
             tracks = []
             for j, tr in enumerate(pl["tracks"]):
                 blocks, tot = [], {}
+                col = 2 + ncols
                 for k, b in enumerate(tr["blocks"]):
                     point = b["t"] is None
-                    top = round((b["f"] - lo) * TL_PX)
-                    h = 24 if point else max(round((b["t"] - b["f"]) * TL_PX), 20)
-                    if point:
-                        top = max(top - h, 0)  # 只有时刻的节点：旗子画在这个时刻的上方，线在时刻处
+                    r0, r1 = (line[(b["f"], 0)], line[(b["f"], 1)]) if point else (line[start(b["f"])], line[(b["t"], 0)])
                     if not point:
                         tot[b["type"]] = tot.get(b["type"], 0) + b["t"] - b["f"]
                     sure_cls, sure_txt = TL_SURE.get(b["sure"], ("none", "未标把握"))
-                    v = {"id": f"tl-{i}-{j}-{k}", "top": top, "h": h, "point": point, "type": b["type"], "tcls": TL_TYPE[b["type"]],
+                    v = {"id": f"tl-{i}-{j}-{k}", "col": col, "r0": r0, "r1": r1, "point": point, "type": b["type"], "tcls": TL_TYPE[b["type"]],
                          "scls": sure_cls, "sure": b["sure"] or "未标", "sure_txt": sure_txt, "from": b["from"], "to": b["to"],
                          "time": f"{b['from']}–{b['to']}" if b["to"] else f"{b['from']} 起",
                          "dur": _dur(b["t"] - b["f"]) if not point else "", "title": tripdata.block_title(b, places),
-                         "mode": b["mode"], "src": b["src"], "note": b["note"], "who": tr["who"], "plan": pl["name"],
+                         "mode": b["mode"], "app": b["app"], "src": b["src"], "note": b["note"], "who": tr["who"], "plan": pl["name"],
                          "place": None, "options": [], "nearby": [], "fare": self.block_fare(b["fare"])}
                     if b["place"]:
                         pv = price_view(places[b["place"]])
@@ -339,11 +374,60 @@ class Site:
                                                 "from": n["from_name"], "label": tripdata.source_label(n["place"])})
                     blocks.append(v)
                 summary = [{"type": t, "cls": TL_TYPE[t], "dur": _dur(tot[t])} for t in tripdata.PLAN_TYPES if t in tot]
-                tracks.append({"who": tr["who"], "blocks": blocks, "first": j == 0, "summary": summary})
+                tracks.append({"who": tr["who"], "blocks": blocks, "first": j == 0, "summary": summary, "col": col})
                 ncols += 1
-            out.append({"name": pl["name"], "note": pl["note"], "tracks": tracks})
-        return {"plans": out, "ruler": ruler, "height": height, "ncols": ncols, "min_width": 46 + ncols * TL_COL, "col": TL_COL, "col_max": TL_COL_MAX, "hpx": round(60 * TL_PX, 2),
+            out.append({"name": pl["name"], "note": pl["note"], "tracks": tracks, "col": tracks[0]["col"], "span": len(tracks)})
+        # 末尾多一行 16px，让最后一个整点的刻度字不被裁掉
+        return {"plans": out, "ruler": ruler, "rows": rows + " 16px", "mins": ",".join(f"{m:g}" for m in mins), "ncols": ncols, "min_width": 46 + ncols * TL_COL, "col": TL_COL, "col_max": TL_COL_MAX,
                 "types": list(TL_TYPE.items()), "sure_legend": [(k, TL_SURE[k][0], TL_SURE[k][1]) for k in tripdata.PLAN_SURE]}
+
+    def glance(self, d):
+        """天页最前面的“速览”：最常回看、信息最密的三样。
+        关键时刻 = 头里的 anchors（带倒计时，可带 app）；去的地方 = 时间轴第一套里有地点的块（玩、吃、机动等，不含路上），
+        按时刻排，同一时刻同一组地点在几条轨道里只列一次；住处不列（公开站不放它的位置）；每个地方带当地名（点一下复制）
+        和 Google 地图链接，吃饭块的备选跟在后面；
+        要用的 App = 第一套里写了 app 的块。没有时间轴的天，去的地方取“推荐的一套”里提到的地点（不带时刻）。"""
+        places, slug = self.places, d["slug"]
+        dt = d["meta"]["date"]
+
+        def item(pid):
+            p = places[pid]
+            return {"id": pid, "name": p["name"], "href": self.link(pid, slug), "local": p.get("name_local") or "", "map": gmap_url(p)}
+
+        def keep(pid):  # 住处不列：公开站不放它的当地名和位置，这一行没有可复制、可导航的东西；进出住处的时刻写在关键时刻里
+            return places[pid].get("kind") != "住宿"
+
+        def iso(m):  # 这天 0 点起第 m 分钟（可以过午夜）→ 带时区的时刻，给页面上的“已过”用
+            return (datetime(dt.year, dt.month, dt.day, tzinfo=TZ) + timedelta(minutes=m)).isoformat()
+
+        stops, apps, seen = [], [], {}
+        if d.get("plans"):
+            for tr in d["plans"][0]["tracks"]:
+                for b in tr["blocks"]:
+                    title = tripdata.block_title(b, places)
+                    if b["app"]:
+                        apps.append({"f": b["f"], "time": b["from"], "who": [tr["who"]], "app": b["app"], "what": title, "at": iso(b["f"])})
+                    ids = [x for x in dict.fromkeys(([b["place"]] if b["place"] else []) + b["options"]) if x in places and keep(x)]
+                    if not ids or b["type"] == "路上":
+                        continue
+                    key = (b["f"], tuple(ids))
+                    if key in seen:
+                        if tr["who"] not in seen[key]["who"]:
+                            seen[key]["who"].append(tr["who"])
+                        continue
+                    seen[key] = e = {"f": b["f"], "time": b["from"], "to": b["to"] or "", "tcls": TL_TYPE[b["type"]], "type": b["type"],
+                                     "who": [tr["who"]], "items": [item(x) for x in ids],
+                                     "note": b["text"] if b["place"] and b["text"] else "",
+                                     "at": iso(b["t"] if b["t"] is not None else b["f"])}   # 结束了才算“已过”，人还在那儿时不收起
+                    stops.append(e)
+        else:
+            stops = [{"f": 0, "time": "", "to": "", "tcls": "", "type": "", "who": [], "items": [item(x)], "note": "", "at": ""}
+                     for x in d["recommended"] if x in places and keep(x)]
+        stops.sort(key=lambda e: e["f"])
+        apps.sort(key=lambda e: e["f"])
+        for e in stops + apps:
+            e["who_label"] = "" if "全组" in e["who"] else "、".join(e["who"])
+        return {"anchors": d["meta"]["anchors"], "stops": stops, "apps": apps}
 
     def block_fare(self, ref):
         """时间块的 fare 字段 → {text, href}。写的是 fare 行 id 就取那一行的短标签并链到买票页那一条；写的是文字（如“免费”）就原样显示。"""
@@ -510,13 +594,18 @@ class Site:
                   groups=self.bk_groups(citems, "{today} 要做完的（还没做完）"),
                   n_open=len(curgent), n_all=len(citems))
 
-    def build_guide(self):
-        """“车票须知”页：读 trip/车票须知.md（普通 Markdown，二级标题分节），生成 ticket-guide.html。[[id]] 照常变成链接。"""
-        path = self.root / "trip" / "车票须知.md"
+    def build_guides(self):
+        """须知页：每份是 trip/ 下一份普通 Markdown（二级标题分节），生成一页；文件不在就不生成。[[id]] 照常变成链接。"""
+        for src, rel, page_id, default, links in GUIDES:
+            self.build_guide(src, rel, page_id, default, links)
+
+    def build_guide(self, src, rel, page_id, default, links):
+        """一份须知 Markdown → 一页（如 trip/车票须知.md → ticket-guide.html）。页首的“跳到”由二级标题生成，标题文字就是锚点。"""
+        path = self.root / src
         if not path.exists():
             return
         text = path.read_text(encoding="utf-8")
-        title = (re.match(r"#\s+(.+)", text) or [None, "车票须知"])[1].strip()
+        title = (re.match(r"#\s+(.+)", text) or [None, default])[1].strip()
         text = re.sub(r"^#\s+.+\n", "", text, count=1)
 
         def sub(m):
@@ -528,7 +617,7 @@ class Site:
         html = md.convert(tripdata.REF.sub(sub, text))
         html = html.replace("<table>", '<div class="tw"><table>').replace("</table>", "</table></div>")
         toc = [{"id": t["id"], "name": t["name"]} for t in md.toc_tokens if t["level"] == 2]
-        self.page("guide.html", "ticket-guide.html", title=title, page_id="ticket-guide", gtitle=title, ghtml=Markup(html), toc=toc)
+        self.page("guide.html", rel, title=title, page_id=page_id, gtitle=title, ghtml=Markup(html), toc=toc, glinks=links)
 
     def usage(self, days):
         used = {}
@@ -579,6 +668,7 @@ class Site:
             d["near"] = self.day_near(d, d["map"]["points"]) if d["map"]["points"] else []
             d["map_json"] = self.map_json(d["map"]["points"], d["near"])
             d["tl"] = self.timeline(d)
+            d["glance"] = self.glance(d)
             d["fare"] = self.fare_view.get(d["date_iso"][5:])
             d["fare_note"] = " ".join(str(d["meta"].get("fare_note") or "").split())
             d["brief"] = self.plan_brief(d)
@@ -612,7 +702,7 @@ class Site:
         self.build_pick()
         self.build_offers()
         self.build_bookings()
-        self.build_guide()
+        self.build_guides()
         self.page("decisions.html", "decisions.html", title="决定", page_id="decisions", decisions=self.data["decisions"])
         credits = []
         for pid, img in sorted(self.images.items()):

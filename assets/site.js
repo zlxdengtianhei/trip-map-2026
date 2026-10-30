@@ -84,6 +84,35 @@
       e.preventDefault();lbOpen(list,0,a);
     });
   }
+  // 时间轴排版（build_site.py 的 timeline）：.tl 是网格，data-rows 是每行按时间比例的最小高度（px，0 是硬节点旗子那一行）。
+  // 先把各行设成最小高度、让块按内容自然高（.tl-measure），量出每块要多高；块放不下时，把它跨过的各行按同一倍数拉长
+  // （一行被几块跨过就取最大的倍数），旗子那一行取旗子的高度。这样字不截断，块里的整点线仍在按时间比例的位置，各轨道对齐。
+  // 时间轴收起着（量不到）就跳过，展开、改窗口宽度、字体加载完时再排。没有脚本时 CSS 的 minmax(…, auto) 照样不截字。
+  function layoutTimeline(tl){
+    if(!tl.offsetParent)return;
+    var mins=(tl.dataset.rows||'').split(',').map(Number);if(!mins.length||isNaN(mins[0]))return;
+    var fixed=function(hs){return 'auto auto '+hs.map(function(h){return h.toFixed(1)+'px';}).join(' ')+' 16px';};
+    tl.style.gridTemplateRows=fixed(mins);
+    tl.classList.add('tl-measure');
+    var k=mins.map(function(){return 1;}),flag=mins.map(function(){return 0;});
+    [].forEach.call(tl.querySelectorAll('.blk[data-r0]'),function(b){
+      var r0=+b.dataset.r0-3,r1=+b.dataset.r1-3,cs=getComputedStyle(b);
+      var need=b.offsetHeight+parseFloat(cs.marginTop)+parseFloat(cs.marginBottom),m=0,i;
+      for(i=r0;i<r1;i++)m+=mins[i];
+      if(m<=0){for(i=r0;i<r1;i++)flag[i]=Math.max(flag[i],need);return;}
+      for(i=r0;i<r1;i++)k[i]=Math.max(k[i],need/m);
+    });
+    tl.classList.remove('tl-measure');
+    tl.style.gridTemplateRows=fixed(mins.map(function(m,i){return m>0?m*k[i]:flag[i];}));
+  }
+  function initTimelineLayout(){
+    var tls=[].slice.call(document.querySelectorAll('.tl[data-rows]'));if(!tls.length)return;
+    function all(){tls.forEach(layoutTimeline);}
+    all();
+    var t=null;window.addEventListener('resize',function(){clearTimeout(t);t=setTimeout(all,150);});
+    document.querySelectorAll('details').forEach(function(d){if(d.querySelector('.tl[data-rows]'))d.addEventListener('toggle',function(){if(d.open)all();});});
+    if(document.fonts&&document.fonts.ready)document.fonts.ready.then(all);
+  }
   // 时间轴：点一个块，把它隐藏的详情放进弹窗（点 ×、点空白、按 Esc 或点详情里的链接都关）
   function initTimeline(){
     var modal=document.getElementById('tlmodal');if(!modal)return;
@@ -171,15 +200,49 @@
       else if(d===today){n.textContent=' 今天截止';n.className='duenote soon';}
     });
   }
-  // 硬节点倒计时：[data-at] 是带时区的 ISO 时刻
+  // 硬节点倒计时：[data-at] 是带时区的 ISO 时刻。天页“速览”的列表（.glist）里，已过的行变淡，每个列表里下一个要到的行标亮
   function tick(){
     var now=Date.now();
     document.querySelectorAll('[data-at]').forEach(function(el){
-      var cd=el.querySelector('.cd');if(!cd)return;
-      var ms=Date.parse(el.dataset.at)-now,m=Math.round(ms/60000);
+      var ms=Date.parse(el.dataset.at)-now,m=Math.round(ms/60000),cd=el.querySelector('.cd');
+      if(el.closest('.glist'))el.classList.toggle('past',ms<0);
+      if(!cd)return;
       if(ms<0){cd.textContent='已过';cd.classList.add('past');return;}
       cd.classList.remove('past');
       cd.textContent=m<60?('还有 '+m+' 分'):m<48*60?('还有 '+Math.floor(m/60)+' 小时 '+(m%60)+' 分'):('还有 '+Math.floor(m/1440)+' 天');
+    });
+    document.querySelectorAll('.glist').forEach(function(ul){
+      var next=null;
+      [].forEach.call(ul.querySelectorAll('li[data-at]'),function(li){
+        li.classList.remove('next');if(!next&&!li.classList.contains('past'))next=li;
+      });
+      // 整个列表都还没开始（比如明天的页）就不标；只在有已过的行时标出“下一个”
+      if(next&&ul.querySelector('li.past'))next.classList.add('next');
+    });
+    // 速览里已过的行先收起（只在当天：既有已过的、也有没过的），顶上的按钮可以再展开
+    document.querySelectorAll('.glance').forEach(function(g){
+      var b=g.querySelector('.gl-past');if(!b)return;
+      var np=g.querySelectorAll('.glist li.past').length,nf=g.querySelectorAll('.glist li[data-at]:not(.past)').length;
+      var on=np>0&&nf>0;g.classList.toggle('foldpast',on);b.hidden=!on;
+      if(on)b.textContent=g.classList.contains('showpast')?('收起已过的 '+np+' 条'):('▸ 显示已过的 '+np+' 条');
+    });
+  }
+  function initPastToggle(){
+    document.addEventListener('click',function(e){
+      var b=e.target.closest&&e.target.closest('.gl-past');if(!b)return;
+      b.closest('.glance').classList.toggle('showpast');tick();
+    });
+  }
+  // 天页“速览”里的当地名（.cp）：点一下复制到剪贴板（复制不了时，CSS 的 user-select:all 让长按能一次选中整段）
+  function initCopy(){
+    document.addEventListener('click',function(e){
+      var c=e.target.closest&&e.target.closest('.cp');if(!c)return;
+      var t=c.textContent;
+      function ok(){c.classList.add('copied');setTimeout(function(){c.classList.remove('copied');},1500);}
+      try{
+        if(!navigator.clipboard||!window.isSecureContext)throw new Error('no clipboard');
+        navigator.clipboard.writeText(t).then(ok,function(){});
+      }catch(x){}
     });
   }
   function initFold(){
@@ -386,5 +449,5 @@
     },true);
     apply();
   }
-  document.addEventListener('DOMContentLoaded',function(){initMaps();initLightbox();initTimeline();initJump();initToday();initDue();initFold();initPick();initDone();tick();setInterval(tick,30000);});
+  document.addEventListener('DOMContentLoaded',function(){initMaps();initLightbox();initTimeline();initJump();initToday();initDue();initFold();initPick();initDone();initCopy();initPastToggle();tick();initTimelineLayout();setInterval(tick,30000);});
 })();

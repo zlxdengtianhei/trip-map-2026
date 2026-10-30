@@ -452,7 +452,12 @@ def load_day(root, path, problems):
         if not isinstance(a, dict) or not a.get("text") or not HHMM.match(t):
             problems.add(rel, 1, f"anchors 里这一条要有 time（HH:MM）和 text：{a}")
             continue
-        anchors.append({"time": t.zfill(5), "text": str(a["text"])})
+        app = a.get("app")
+        if app is not None and not (isinstance(app, str) and app.strip()):
+            problems.add(rel, 1, f"anchors 里 {t} 那条的 app 要写成一句文字（如“ÖBB app 查站台”），现在是 “{app}”")
+            app = None
+        anchors.append({"time": t.zfill(5), "text": str(a["text"]),
+                        "app": re.sub(r"^用\s*", "", " ".join(app.split())) if app else ""})
     meta["anchors"] = sorted(anchors, key=lambda x: x["time"])
 
     cur, slot = None, None
@@ -859,8 +864,8 @@ def _plan_block(b, where, rel, places, problems):
     elif sure is None:
         problems.add(rel, 1, f"{where} 缺 sure（{' | '.join(PLAN_SURE)}）；网站先显示成“未标”")
     out = {"from": hhmm(f), "to": hhmm(t) if t is not None else None, "f": f, "t": t, "type": typ, "sure": sure,
-           "place": None, "options": [], "text": "", "mode": "", "src": "", "note": "", "fare": ""}
-    for k in ("text", "mode", "src", "note", "fare"):
+           "place": None, "options": [], "text": "", "mode": "", "src": "", "note": "", "fare": "", "app": ""}
+    for k in ("text", "mode", "src", "note", "fare", "app"):
         v = b.get(k)
         if v is None:
             continue
@@ -868,6 +873,8 @@ def _plan_block(b, where, rel, places, problems):
             out[k] = " ".join(v.split())
         else:
             problems.add(rel, 1, f"{where} 的 {k} 要写成一句文字，现在是 “{v}”")
+    # app：这一步用哪个 App 或网站做什么，写成“ÖBB app 查车次”；网站显示成“用 ÖBB app 查车次”，开头写了“用”就去掉，免得重复
+    out["app"] = re.sub(r"^用\s*", "", out["app"])
     if out["fare"] and typ not in ("路上", "硬节点"):
         problems.add(rel, 1, f"{where} 的 fare 只给“路上”或“硬节点”块用（这块是 {typ}）")
         out["fare"] = ""
@@ -1249,7 +1256,7 @@ def day_text(data, d):
     if lead:
         lines.append(lead)
     for a in m.get("anchors") or []:
-        lines.append(f"  硬节点 {a['time']} {a['text']}")
+        lines.append(f"  硬节点 {a['time']} {a['text']}" + (f"｜用 {a['app']}" if a.get("app") else ""))
     if not d["plans"]:
         lines.append("（这天没有时间轴 plans，下面是“推荐的一套”）")
         lines.append(d["sections"].get("推荐的一套", {}).get("text") or "（也没有推荐的一套）")
@@ -1266,6 +1273,8 @@ def day_text(data, d):
                 head = f"    {span} {b['type']}·{b['sure'] or '未标'} {block_title(b, places)}"
                 if b["mode"]:
                     head += f"｜{b['mode']}"
+                if b["app"]:
+                    head += f"｜用 {b['app']}"
                 lines.append(head + dur + (f"｜{b['note']}" if b["note"] else "") + (f"｜出处：{b['src']}" if b["src"] else ""))
                 if b["t"] is not None:
                     tot[b["type"]] = tot.get(b["type"], 0) + b["t"] - b["f"]
