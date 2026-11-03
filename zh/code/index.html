@@ -1,0 +1,64 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>工具代码 · 中欧 8 日 2026-10</title>
+<link rel="stylesheet" href="../assets/style.css">
+
+<link rel="alternate" hreflang="en" href="../../code/index.html"><link rel="alternate" hreflang="zh-CN" href="index.html">
+</head>
+<body data-page="code">
+<header class="top">
+  <div class="brand"><a href="../index.html">中欧 8 日 · 10/25–11/1</a></div>
+  <a class="langsw" href="../../code/index.html" hreflang="en" lang="en">English</a>
+  <button class="navtoggle" aria-label="菜单：日期与各页" onclick="document.body.classList.toggle('navopen')">☰ 菜单</button>
+  <nav id="nav">
+    <a href="../index.html">首页</a>
+    <a href="../about.html">关于本页</a>
+    <a class="day" href="../day-10-25.html">10/25</a>
+    <a class="day" href="../day-10-26.html">10/26</a>
+    <a class="day" href="../day-10-27.html">10/27</a>
+    <a class="day" href="../day-10-28.html">10/28</a>
+    <a class="day" href="../day-10-29.html">10/29</a>
+    <a class="day" href="../day-10-30.html">10/30</a>
+    <a class="day" href="../day-10-31.html">10/31</a>
+    <a class="day" href="../day-11-01.html">11/1</a>
+    <a href="../area-budapest.html">布达佩斯</a>
+    <a href="../area-vienna.html">维也纳</a>
+    <a href="../area-lakes.html">湖区</a>
+    <span class="navsep" aria-hidden="true"></span>
+    <a class="aux" href="../pick.html">选地方</a>
+    <a class="aux" href="../bookings.html">买票预约</a>
+    <a class="aux" href="../contacts.html">要联系</a>
+    <a class="aux" href="../offers.html">优惠</a>
+    <a class="aux" href="../apps.html">App 须知</a>
+    <a class="aux" href="../decisions.html">决定</a>
+  </nav>
+</header>
+<main>
+
+<h1>工具代码</h1>
+<p>这些 Python 小工具用来生成本站、查公共交通、排一天的顺序、给每个地方找图，按 <a href="../../code/LICENSE">MIT 许可</a>发布（Transitous 数据条款要求使用它 API 的项目开源）。行程数据不在这里。</p>
+<ul>
+<li><a href="../../code/build_site.py">build_site.py</a>：从行程文件生成静态网站，发布前扫描产物里有没有隐私信息。</li>
+<li><a href="../../code/check.py">check.py</a>：检查行程文件（天页、地点库、预订）的格式，只报不改。</li>
+<li><a href="../../code/images.py">images.py</a>：从维基百科、Wikimedia Commons 和 Openverse 给地点找候选图，记下选定那张的许可证。</li>
+<li><a href="../../code/plan_day.py">plan_day.py</a>：给定起点、最晚回到哪和候选地点，按真实时刻表排一天的顺序，给推荐、备选和每个被舍候选的原因。</li>
+<li><a href="../../code/privacy.py">privacy.py</a>：替换或拦下名单里的词，给邮箱打码，扫描生成的网站。</li>
+<li><a href="../../code/transit.py">transit.py</a>：从 Transitous 查站、查班次、查整天时刻表。</li>
+<li><a href="../../code/tripdata.py">tripdata.py</a>：读行程数据（地点、天页、要提前做的、决定、图片来源），网站和 agent 共用这组函数。</li>
+<li><a href="../../code/LICENSE">LICENSE</a></li>
+</ul>
+<p>把这种做法重做成 AI 助手可用服务的开源项目是 <a href="https://github.com/zlxdengtianhei/tripwright">tripwright</a>，见<a href="../about.html">关于本页</a>。</p>
+
+</main>
+<footer>
+  <p>行程已结束：这里是行程结束时的计划，最后生成于 2026-10-31 14:03（维也纳时间）。时刻、票价和开放时间只按当时核过，不再更新；车次来自开放时刻表数据，出行前请再核。本站只展示，不预订、不付款。</p>
+  <p class="muted"><a href="../about.html">关于本页</a> · <a href="https://github.com/zlxdengtianhei/tripwright">tripwright（GitHub）</a> · <a href="../credits.html">图片来源</a> · <a href="index.html">工具代码（MIT）</a> · 交通数据 <a href="https://transitous.org/">Transitous</a> · 地图 © <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a></p>
+</footer>
+
+<script src="../assets/site.js"></script>
+
+</body>
+</html>

@@ -1,0 +1,125 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>About this page · 8 days in Central Europe 2026-10</title>
+<link rel="stylesheet" href="assets/style.css">
+
+<link rel="alternate" hreflang="en" href="about.html"><link rel="alternate" hreflang="zh-CN" href="zh/about.html">
+</head>
+<body data-page="about">
+<header class="top">
+  <div class="brand"><a href="index.html">8 days in Central Europe · 10/25–11/1</a></div>
+  <a class="langsw" href="zh/about.html" hreflang="zh-CN" lang="zh-CN">中文</a>
+  <button class="navtoggle" aria-label="Menu: dates and pages" onclick="document.body.classList.toggle('navopen')">☰ Menu</button>
+  <nav id="nav">
+    <a href="index.html">Home</a>
+    <a class="on" href="about.html">About</a>
+    <a class="day" href="day-10-25.html">10/25</a>
+    <a class="day" href="day-10-26.html">10/26</a>
+    <a class="day" href="day-10-27.html">10/27</a>
+    <a class="day" href="day-10-28.html">10/28</a>
+    <a class="day" href="day-10-29.html">10/29</a>
+    <a class="day" href="day-10-30.html">10/30</a>
+    <a class="day" href="day-10-31.html">10/31</a>
+    <a class="day" href="day-11-01.html">11/1</a>
+    <a href="area-budapest.html">Budapest</a>
+    <a href="area-vienna.html">Vienna</a>
+    <a href="area-lakes.html">Lakes</a>
+    <span class="navsep" aria-hidden="true"></span>
+    <a class="aux" href="pick.html">Pick places</a>
+    <a class="aux" href="bookings.html">Tickets and reservations</a>
+    <a class="aux" href="contacts.html">Contact</a>
+    <a class="aux" href="offers.html">Discounts</a>
+    <a class="aux" href="apps.html">App notes</a>
+    <a class="aux" href="decisions.html">Decisions</a>
+  </nav>
+</header>
+<main>
+
+<div class="about">
+<h1>About this page</h1>
+<p class="lede">This site is the plan of a real trip: four friends, 25 October to 1 November 2026, Budapest, Vienna and the lakes of the Salzkammergut in Austria. An AI agent wrote and updated the plan during the trip. The same way of planning is now an open-source project, <b>tripwright</b>.</p>
+<p class="toc small">On this page: <a href="#what">What you are looking at</a> · <a href="#made">How the plan was made</a> · <a href="#privacy">What was removed before publishing</a> · <a href="#tripwright">What tripwright is</a> · <a href="#relation">How this page relates to tripwright</a> · <a href="#use">See the code, use it yourself</a> · <a href="#pages">Pages on this site</a> · <a href="#words">Words used on the pages</a></p>
+
+<h2 id="what">What you are looking at</h2>
+<p>The plan as it stood at the end of the trip. The site was last generated on 31 October 2026 at 14:03 (Vienna time) and is not updated any more. Times, prices and opening hours were checked for those dates only; check them again before you use them for your own trip.</p>
+<p>Start on the <a href="index.html">home page</a>: it shows the route, one line per day and how to read a day page. Each day page then gives the fixed times, the places in order with map links, a timeline for each person, and the other options.</p>
+
+<h2 id="made">How the plan was made</h2>
+<ul>
+  <li><b>Asking.</b> The traveler who planned the trip told an AI agent what the group wanted, in chat messages; many were dictated by voice. Before and during the trip, each message could add a wish, a booking or a correction.</li>
+  <li><b>Keeping.</b> The agent kept everything in a private trip repository: who wanted what, the candidate places with photos and prices, tickets and reservations, and each decision with the words it came from and the reason. The <a href="decisions.html">Decisions</a> page lists 68 of them.</li>
+  <li><b>Checking.</b> The agent looked up trains and buses in open timetable data from <a href="https://transitous.org/">Transitous</a> and the weather in the Open-Meteo forecast. Where it could not check something, the pages say so ("not checked", "not found").</li>
+  <li><b>Changing.</b> When the weather, a late bus or a new idea changed the day, the agent re-planned, wrote down why, and rebuilt this site. The group read the day pages on their phones.</li>
+</ul>
+<p>The small programs that built this site and looked up transport are in <a href="code/index.html">Tool code</a> (MIT licence).</p>
+
+<h2 id="privacy">What was removed before publishing</h2>
+<ul>
+  <li>No names: the planner appears as "I" or "me", the others as "companions" or "friends". People quoted from social media appear as "a Xiaohongshu blogger" (Xiaohongshu, also called RedNote, is a Chinese social media app).</li>
+  <li>Where we stayed is given only as the type of place and its town or district (in Vienna, the postcode district). Lodging names, street numbers, the stops next to them, and the times and walking times for getting to and from them are left out; times and lines between public places stay, so someone who knows the routes can still roughly estimate the distances.</li>
+  <li>No flight numbers, booking numbers, personal phone numbers or email addresses. Airlines, dates and times stay.</li>
+  <li>Photo credits stay as their licences require (see <a href="credits.html">Image credits</a>).</li>
+</ul>
+
+<h2 id="tripwright">What tripwright is</h2>
+<p>tripwright is an open-source trip-planning service for AI assistants. Assistants such as Claude, ChatGPT and Codex connect to it over MCP (the Model Context Protocol, a standard way for an AI app to use outside tools); what each app allows differs, and the README lists the limits. Your assistant writes the answer; tripwright gives it what to remember and the facts to check.</p>
+<ul>
+  <li><b>It brings back what you said.</b> In every turn it returns the preferences, companions, decisions and must-see places that apply, so the assistant plans with what you said earlier, not only with your last message.</li>
+  <li><b>It answers in two parts.</b> First the next step from the saved plan, with unchecked times marked. Then the full plan after the checks, starting with what changed.</li>
+  <li><b>It states what the transport data covers.</b> Each leg comes with its trains or buses, stops, changes and the time window that was searched. A search with no result is reported as "not found", not as "no service". For live information it cannot get, it says which app to open and what to search.</li>
+  <li><b>It records every change.</b> An accepted change to the plan is saved with what changed, who changed it and why. Places and times you call a must, and tickets already bought, are protected; other choices can change, with a reason.</li>
+  <li><b>You keep the data.</b> The trip lives in your own Git repository or a local database. You can read each day's plan and its history, and export it.</li>
+</ul>
+<p><b>Limits.</b> There is no public service: each person runs their own copy, with Docker or on Railway. Transport data is mostly timetables, not live; delays, platforms and seat availability are not guaranteed. The service has no model of its own, so the quality of the answers depends on the assistant; answer quality is still being evaluated.</p>
+
+<h2 id="relation">How this page relates to tripwright</h2>
+<p>This trip was planned with the first version of this approach: an AI agent working in a private trip repository with the small tools in <a href="code/index.html">Tool code</a>. tripwright rebuilds that approach as a service that any assistant with MCP support can use.</p>
+<p>The same trip is in the tripwright repository as an example, with names replaced by codes: <a href="https://github.com/zlxdengtianhei/tripwright/tree/main/examples/trip-2026-10-bud-wien">examples/trip-2026-10-bud-wien</a>. There you can see the pages that tripwright keeps in a trip repository: each day, the preferences and memories, and why the plan changed.</p>
+
+<h2 id="use">See the code, use it yourself</h2>
+<ul>
+  <li>Code and documentation: <a href="https://github.com/zlxdengtianhei/tripwright">github.com/zlxdengtianhei/tripwright</a> (MIT licence).</li>
+  <li>Project homepage: <a href="https://zlxdengtianhei.github.io/tripwright/">zlxdengtianhei.github.io/tripwright</a>.</li>
+  <li>Set up your own copy: give <a href="https://github.com/zlxdengtianhei/tripwright/blob/main/deploy/SETUP.md">deploy/SETUP.md</a> to your coding agent (Claude Code, Codex and similar) and let it follow the steps. You sign up for Railway or install Docker, then add the connector in your AI app.</li>
+  <li>Try it on your computer first, with a made-up trip (needs Python 3.11 or later and <a href="https://docs.astral.sh/uv/">uv</a>):</li>
+</ul>
+<pre><code>git clone https://github.com/zlxdengtianhei/tripwright
+cd tripwright
+uv sync --extra dev
+uv run tripwright demo</code></pre>
+
+<h2 id="pages">Pages on this site</h2>
+<dl>
+  <dt><a href="day-10-25.html">Day pages</a> (10/25 to 11/1)</dt><dd>The plan for each day: fixed times, places in order, a timeline per person, transport, map, photos, other options and a rain plan.</dd>
+  <dt><a href="area-budapest.html">Budapest</a>, <a href="area-vienna.html">Vienna</a>, <a href="area-lakes.html">Lakes</a></dt><dd>All the places we considered in each area, with photos, prices, opening hours and sources.</dd>
+  <dt><a href="pick.html">Pick places</a></dt><dd>Before the trip, this page let the travelers mark the places they wanted or wanted to skip, and copy their choices for the agent. Marks are saved only on your own device.</dd>
+  <dt><a href="bookings.html">Tickets and reservations</a>, <a href="contacts.html">Contact</a>, <a href="offers.html">Discounts</a></dt><dd>What to buy or book and by when, whom to contact, and which tickets and discounts were worth it.</dd>
+  <dt><a href="apps.html">App notes</a>, <a href="ticket-guide.html">Ticket notes</a></dt><dd>Which apps to use for maps, timetables, tickets and taxis, and the rules for tickets, seats and luggage.</dd>
+  <dt><a href="decisions.html">Decisions</a></dt><dd>Each change to the plan: when, the words it came from, and why.</dd>
+  <dt><a href="credits.html">Image credits</a>, <a href="code/index.html">Tool code</a></dt><dd>Where each photo comes from, and the programs that built the site.</dd>
+</dl>
+
+<h2 id="words">Words used on the pages</h2>
+<dl>
+  <dt>"I", "me", "the user"</dt><dd>The traveler who planned the trip with the AI agent. The pages were written for the group on the road, so they often say "you" too.</dd>
+  <dt>"Companions", "friends"</dt><dd>The other three travelers. "Whole group" means all four.</dd>
+  <dt>Fixed point, Key times</dt><dd>A time that cannot move: a train, a bus, a timed ticket, a reservation.</dd>
+  <dt>Recommended set, first timeline set</dt><dd>The plan the group followed by default. The other plans of the day are shown next to it.</dd>
+  <dt>D-44, Q-07</dt><dd>Numbers of decisions (D) and open questions (Q). The <a href="decisions.html">Decisions</a> page explains each one.</dd>
+  <dt>"Past", "Done"</dt><dd>Labels for the travelers during the trip. Now every time shows "Past". A "Done" mark is saved only on the device where you tap it.</dd>
+</dl>
+</div>
+
+</main>
+<footer>
+  <p>The trip is over: this is the plan as it stood at the end, last generated on 31 Oct 2026 at 14:03 (Vienna time). Times, prices and opening hours were checked for those days and are not kept up to date; train times come from open timetable data, so check them again before you travel. This site only shows information; it does not book or take payment.</p>
+  <p class="muted"><a href="about.html">About this page</a> · <a href="https://github.com/zlxdengtianhei/tripwright">tripwright on GitHub</a> · <a href="credits.html">Image credits</a> · <a href="code/index.html">Tool code (MIT)</a> · Transit data <a href="https://transitous.org/">Transitous</a> · Map © <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a></p>
+</footer>
+
+<script src="assets/site.js"></script>
+
+</body>
+</html>

@@ -1,0 +1,125 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>关于本页 · 中欧 8 日 2026-10</title>
+<link rel="stylesheet" href="assets/style.css">
+
+<link rel="alternate" hreflang="en" href="../about.html"><link rel="alternate" hreflang="zh-CN" href="about.html">
+</head>
+<body data-page="about">
+<header class="top">
+  <div class="brand"><a href="index.html">中欧 8 日 · 10/25–11/1</a></div>
+  <a class="langsw" href="../about.html" hreflang="en" lang="en">English</a>
+  <button class="navtoggle" aria-label="菜单：日期与各页" onclick="document.body.classList.toggle('navopen')">☰ 菜单</button>
+  <nav id="nav">
+    <a href="index.html">首页</a>
+    <a class="on" href="about.html">关于本页</a>
+    <a class="day" href="day-10-25.html">10/25</a>
+    <a class="day" href="day-10-26.html">10/26</a>
+    <a class="day" href="day-10-27.html">10/27</a>
+    <a class="day" href="day-10-28.html">10/28</a>
+    <a class="day" href="day-10-29.html">10/29</a>
+    <a class="day" href="day-10-30.html">10/30</a>
+    <a class="day" href="day-10-31.html">10/31</a>
+    <a class="day" href="day-11-01.html">11/1</a>
+    <a href="area-budapest.html">布达佩斯</a>
+    <a href="area-vienna.html">维也纳</a>
+    <a href="area-lakes.html">湖区</a>
+    <span class="navsep" aria-hidden="true"></span>
+    <a class="aux" href="pick.html">选地方</a>
+    <a class="aux" href="bookings.html">买票预约</a>
+    <a class="aux" href="contacts.html">要联系</a>
+    <a class="aux" href="offers.html">优惠</a>
+    <a class="aux" href="apps.html">App 须知</a>
+    <a class="aux" href="decisions.html">决定</a>
+  </nav>
+</header>
+<main>
+
+<div class="about">
+<h1>关于本页</h1>
+<p class="lede">这个网站是一趟真实行程的计划：四个朋友，2026 年 10 月 25 日至 11 月 1 日，布达佩斯、维也纳和奥地利萨尔茨卡默古特的湖区。计划由 AI agent 写成，行程中随时更新。这种做法现在做成了一个开源项目：<b>tripwright</b>。</p>
+<p class="toc small">本页内容：<a href="#what">你看到的是什么</a> · <a href="#made">计划怎样做出来</a> · <a href="#privacy">公开前去掉了什么</a> · <a href="#tripwright">tripwright 是什么</a> · <a href="#relation">本页和 tripwright 的关系</a> · <a href="#use">看代码、自己用</a> · <a href="#pages">站内各页</a> · <a href="#words">页面上的用词</a></p>
+
+<h2 id="what">你看到的是什么</h2>
+<p>行程结束时的计划。网站最后生成于 2026-10-31 14:03（维也纳时间），之后不再更新。时刻、票价和开放时间只按当时的日期核过；拿来排自己的行程前，请再核一遍。</p>
+<p>从<a href="index.html">首页</a>看起：首页有路线、每天一行、怎样看每天的页面。每天的页面再给出定死的时刻、按顺序去的地方和地图链接、每人一列的时间轴，以及其他方案。</p>
+
+<h2 id="made">计划怎样做出来</h2>
+<ul>
+  <li><b>说。</b>排行程的那位旅行者用聊天消息把大家想要什么告诉 AI agent，很多是语音转的文字。行前和路上，每条消息都可能加一个愿望、一项预订或一处纠正。</li>
+  <li><b>记。</b>agent 把这些都记在一个私有的行程仓里：谁想要什么，候选地点和照片、价格，车票与预约，以及每条决定、它出自哪句话、为什么这样定。<a href="decisions.html">决定</a>页列了其中 68 条。</li>
+  <li><b>查。</b>agent 用 <a href="https://transitous.org/">Transitous</a> 的开放时刻表数据查火车和巴士，用 Open-Meteo 查天气预报。查不了的地方，页面上写明“没核”“没查到”。</li>
+  <li><b>改。</b>天气、晚点的巴士或新的想法打乱当天安排时，agent 重新排，写下原因，再重新生成这个网站。大家在手机上看每天的页面。</li>
+</ul>
+<p>生成本站、查交通用的小程序在<a href="code/index.html">工具代码</a>（MIT 许可）。</p>
+
+<h2 id="privacy">公开前去掉了什么</h2>
+<ul>
+  <li>不写人名：排行程的人写成“我”“本人”，其他人写成“队友”“同行人”。从社交媒体引用的人写成“一位小红书博主”。</li>
+  <li>住的地方只写类型和城镇或城区（维也纳写到邮编区）；住处名、门牌、住处旁的站、进出住处的时刻和步行时长都不写。公共地点之间的时刻和车次照写，所以熟悉线路的人仍能大致估出远近。</li>
+  <li>不写航班号、订单号、个人电话和邮箱。航空公司、日期和时刻保留。</li>
+  <li>图片作者署名按授权要求保留（见<a href="credits.html">图片来源</a>）。</li>
+</ul>
+
+<h2 id="tripwright">tripwright 是什么</h2>
+<p>tripwright 是给 AI 助手用的开源旅行规划服务。Claude、ChatGPT、Codex 这类助手通过 MCP（Model Context Protocol，模型上下文协议，AI 应用调用外部工具的标准方式）连上它；各家应用允许做的事不一样，README 写了各家的限制。回答由你的助手写，tripwright 给它该记住的东西和要核的事实。</p>
+<ul>
+  <li><b>把你说过的带回来。</b>每一问，它都取出适用的偏好、同行人、决定和想去的地方，让助手按你以前说的排，不只看最近一句话。</li>
+  <li><b>分两段回答。</b>先按存的计划给下一步，没核的时刻标明待核；查完再给完整安排，先说和第一段哪里不同。</li>
+  <li><b>交通写清数据覆盖到哪。</b>每一程写出车次、站点、换乘和查询的时间窗。一次没查到，报“查不到”，不说“没车”。拿不到的实时信息，写明去哪个 App、搜什么。</li>
+  <li><b>每次改动都有记录。</b>接受的计划改动记下改了什么、谁改的、为什么。你说了“必须”的地方与时间、已经买好的票受保护；其他选择可以带理由调整。</li>
+  <li><b>数据在你手里。</b>行程存在你自己的 Git 仓或本机数据库里，能看每天的安排和历史，也能导出。</li>
+</ul>
+<p><b>限制。</b>没有公共服务：每个人用 Docker 或在 Railway 上自己部署一份。交通数据主要是时刻表，不是实时的；晚点、站台、余位不作保证。服务本身不带模型，回答好不好取决于你的助手；回答质量还在评测中。</p>
+
+<h2 id="relation">本页和 tripwright 的关系</h2>
+<p>这趟行程用的是这种做法的第一版：AI agent 在私有行程仓里工作，配合<a href="code/index.html">工具代码</a>里的小工具。tripwright 把这种做法重做成一个服务，任何支持 MCP 的助手都能用。</p>
+<p>这趟行程也作为例子放在 tripwright 仓里，人名换成了代号：<a href="https://github.com/zlxdengtianhei/tripwright/tree/main/examples/trip-2026-10-bud-wien">examples/trip-2026-10-bud-wien</a>。那里能看到 tripwright 在行程仓里维护的页面：每天的安排、偏好与记忆、计划为什么改。</p>
+
+<h2 id="use">看代码、自己用</h2>
+<ul>
+  <li>代码和文档：<a href="https://github.com/zlxdengtianhei/tripwright">github.com/zlxdengtianhei/tripwright</a>（MIT 许可）。</li>
+  <li>项目首页：<a href="https://zlxdengtianhei.github.io/tripwright/">zlxdengtianhei.github.io/tripwright</a>。</li>
+  <li>自己部署一份：把 <a href="https://github.com/zlxdengtianhei/tripwright/blob/main/deploy/SETUP.md">deploy/SETUP.md</a> 交给你的编程 agent（Claude Code、Codex 等）照着做。你只需注册 Railway 或装好 Docker，再在 AI 应用里加上连接器。</li>
+  <li>想先在自己电脑上用虚构的行程试一下（要 Python 3.11 以上和 <a href="https://docs.astral.sh/uv/">uv</a>）：</li>
+</ul>
+<pre><code>git clone https://github.com/zlxdengtianhei/tripwright
+cd tripwright
+uv sync --extra dev
+uv run tripwright demo</code></pre>
+
+<h2 id="pages">站内各页</h2>
+<dl>
+  <dt><a href="day-10-25.html">每天的页面</a>（10/25 至 11/1）</dt><dd>每天的计划：定死的时刻、按顺序去的地方、每人一列的时间轴、交通、地图、照片、其他方案和下雨怎么办。</dd>
+  <dt><a href="area-budapest.html">布达佩斯</a>、<a href="area-vienna.html">维也纳</a>、<a href="area-lakes.html">湖区</a></dt><dd>每个地区考虑过的所有地方，带照片、价格、开放时间和出处。</dd>
+  <dt><a href="pick.html">选地方</a></dt><dd>行前，旅行者可以在这页标出想去和不去的地方，再复制给 agent。标记只存在你自己的设备上。</dd>
+  <dt><a href="bookings.html">买票预约</a>、<a href="contacts.html">要联系</a>、<a href="offers.html">优惠</a></dt><dd>要买什么、要订什么、截止到哪天，要联系谁，哪些票和优惠划算。</dd>
+  <dt><a href="apps.html">App 须知</a>、<a href="ticket-guide.html">车票须知</a></dt><dd>地图、查车次、买票、打车各用哪个 App，车票、订座和行李的规则。</dd>
+  <dt><a href="decisions.html">决定</a></dt><dd>计划的每一处改动：什么时候改的、出自哪句话、为什么。</dd>
+  <dt><a href="credits.html">图片来源</a>、<a href="code/index.html">工具代码</a></dt><dd>每张照片的出处，以及生成本站的程序。</dd>
+</dl>
+
+<h2 id="words">页面上的用词</h2>
+<dl>
+  <dt>“我”“本人”“用户”</dt><dd>和 AI agent 一起排行程的那位旅行者。页面是写给路上的大家看的，所以也常说“你”。</dd>
+  <dt>“队友”“同行人”</dt><dd>另外三位旅行者。“全组”指四个人。</dd>
+  <dt>硬节点、关键时刻</dt><dd>不能挪的时刻：火车、巴士、限时门票、预约。</dd>
+  <dt>推荐的一套（时间轴第一套）</dt><dd>大家默认照着走的方案。这天的其他方案放在旁边。</dd>
+  <dt>D-44、Q-07</dt><dd>决定（D）和待定问题（Q）的编号。<a href="decisions.html">决定</a>页逐条说明。</dd>
+  <dt>“已过”“做完”</dt><dd>行程中给旅行者看的标记。现在所有时刻都显示“已过”。“做完”只记在你点它的那台设备上。</dd>
+</dl>
+</div>
+
+</main>
+<footer>
+  <p>行程已结束：这里是行程结束时的计划，最后生成于 2026-10-31 14:03（维也纳时间）。时刻、票价和开放时间只按当时核过，不再更新；车次来自开放时刻表数据，出行前请再核。本站只展示，不预订、不付款。</p>
+  <p class="muted"><a href="about.html">关于本页</a> · <a href="https://github.com/zlxdengtianhei/tripwright">tripwright（GitHub）</a> · <a href="credits.html">图片来源</a> · <a href="code/index.html">工具代码（MIT）</a> · 交通数据 <a href="https://transitous.org/">Transitous</a> · 地图 © <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a></p>
+</footer>
+
+<script src="assets/site.js"></script>
+
+</body>
+</html>

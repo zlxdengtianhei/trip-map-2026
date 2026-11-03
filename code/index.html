@@ -1,0 +1,64 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Tool code · 8 days in Central Europe 2026-10</title>
+<link rel="stylesheet" href="../assets/style.css">
+
+<link rel="alternate" hreflang="en" href="index.html"><link rel="alternate" hreflang="zh-CN" href="../zh/code/index.html">
+</head>
+<body data-page="code">
+<header class="top">
+  <div class="brand"><a href="../index.html">8 days in Central Europe · 10/25–11/1</a></div>
+  <a class="langsw" href="../zh/code/index.html" hreflang="zh-CN" lang="zh-CN">中文</a>
+  <button class="navtoggle" aria-label="Menu: dates and pages" onclick="document.body.classList.toggle('navopen')">☰ Menu</button>
+  <nav id="nav">
+    <a href="../index.html">Home</a>
+    <a href="../about.html">About</a>
+    <a class="day" href="../day-10-25.html">10/25</a>
+    <a class="day" href="../day-10-26.html">10/26</a>
+    <a class="day" href="../day-10-27.html">10/27</a>
+    <a class="day" href="../day-10-28.html">10/28</a>
+    <a class="day" href="../day-10-29.html">10/29</a>
+    <a class="day" href="../day-10-30.html">10/30</a>
+    <a class="day" href="../day-10-31.html">10/31</a>
+    <a class="day" href="../day-11-01.html">11/1</a>
+    <a href="../area-budapest.html">Budapest</a>
+    <a href="../area-vienna.html">Vienna</a>
+    <a href="../area-lakes.html">Lakes</a>
+    <span class="navsep" aria-hidden="true"></span>
+    <a class="aux" href="../pick.html">Pick places</a>
+    <a class="aux" href="../bookings.html">Tickets and reservations</a>
+    <a class="aux" href="../contacts.html">Contact</a>
+    <a class="aux" href="../offers.html">Discounts</a>
+    <a class="aux" href="../apps.html">App notes</a>
+    <a class="aux" href="../decisions.html">Decisions</a>
+  </nav>
+</header>
+<main>
+
+<h1>Tool code</h1>
+<p>These small Python tools built this site, looked up public transport, ordered the places of a day and found photos for each place. They are published under the <a href="LICENSE">MIT licence</a> (the Transitous data terms ask projects that use its API to be open source). The trip data itself is not here, and the code comments are in Chinese.</p>
+<ul>
+<li><a href="build_site.py">build_site.py</a>: builds the static site from the trip files and scans the result for private details before it is published.</li>
+<li><a href="check.py">check.py</a>: checks the trip files (day pages, place database, bookings) for format errors; it reports and does not change anything.</li>
+<li><a href="images.py">images.py</a>: finds candidate photos for a place on Wikipedia, Wikimedia Commons and Openverse, and records the licence of the chosen one.</li>
+<li><a href="plan_day.py">plan_day.py</a>: orders a day from a start point, a latest return and candidate places, using real timetables; it gives a recommended order, alternatives and the reason each dropped place was dropped.</li>
+<li><a href="privacy.py">privacy.py</a>: replaces or blocks listed words, masks email addresses and scans the built site.</li>
+<li><a href="transit.py">transit.py</a>: looks up stops, connections and full-day timetables from Transitous.</li>
+<li><a href="tripdata.py">tripdata.py</a>: reads the trip data (places, day pages, to-dos, decisions, image credits); the site and the agent use the same functions.</li>
+<li><a href="LICENSE">LICENSE</a></li>
+</ul>
+<p>The open-source project that rebuilds this approach as a service for AI assistants is <a href="https://github.com/zlxdengtianhei/tripwright">tripwright</a>; see <a href="../about.html">About this page</a>.</p>
+
+</main>
+<footer>
+  <p>The trip is over: this is the plan as it stood at the end, last generated on 31 Oct 2026 at 14:03 (Vienna time). Times, prices and opening hours were checked for those days and are not kept up to date; train times come from open timetable data, so check them again before you travel. This site only shows information; it does not book or take payment.</p>
+  <p class="muted"><a href="../about.html">About this page</a> · <a href="https://github.com/zlxdengtianhei/tripwright">tripwright on GitHub</a> · <a href="../credits.html">Image credits</a> · <a href="index.html">Tool code (MIT)</a> · Transit data <a href="https://transitous.org/">Transitous</a> · Map © <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a></p>
+</footer>
+
+<script src="../assets/site.js"></script>
+
+</body>
+</html>
